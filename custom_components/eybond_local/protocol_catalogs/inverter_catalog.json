@@ -1075,28 +1075,128 @@
   "srne_modbus": {
    "ranges": [
     [
+     20,
+     2
+    ],
+    [
+     33,
+     20
+    ],
+    [
      53,
      20
     ],
     [
      256,
-     18
+     3
+    ],
+    [
+     260,
+     3
+    ],
+    [
+     263,
+     3
+    ],
+    [
+     267,
+     1
+    ],
+    [
+     270,
+     4
     ],
     [
      516,
      4
     ],
     [
+     524,
+     3
+    ],
+    [
      528,
-     18
+     19
     ],
     [
      554,
      14
+    ],
+    [
+     57101,
+     1
+    ],
+    [
+     57345,
+     2
+    ],
+    [
+     57348,
+     1
+    ],
+    [
+     57349,
+     10
+    ],
+    [
+     57360,
+     5
+    ],
+    [
+     57371,
+     1
+    ],
+    [
+     57378,
+     2
+    ],
+    [
+     57624,
+     1
+    ],
+    [
+     57631,
+     2
+    ],
+    [
+     57856,
+     2
+    ],
+    [
+     57860,
+     3
+    ],
+    [
+     57864,
+     11
+    ],
+    [
+     57876,
+     2
+    ],
+    [
+     57883,
+     1
+    ],
+    [
+     61485,
+     4
+    ],
+    [
+     61492,
+     8
+    ],
+    [
+     61500,
+     2
+    ],
+    [
+     61514,
+     2
     ]
    ],
    "notes": [
-    "SRNE-compatible support is read-only. Devices are expected to use Modbus RTU 9600 8N1 and slave address 1."
+    "SRNE/EASUN SMX-II devices use Modbus RTU 9600 8N1 and slave address 1. Runtime ranges are split around unsupported register holes; profile writes require exact-register read-back."
    ]
   },
   "must_pv_ph18": {
@@ -1707,6 +1807,17 @@
    "tier": "partial",
    "read_only": true,
    "default_for_driver": true,
+   "support_capture_policy": "srne_modbus"
+  },
+  {
+   "key": "srne_modbus_smx_ii",
+   "protocol_key": "srne_modbus",
+   "driver_key": "srne_modbus",
+   "variant_key": "smx_ii_24v",
+   "profile_name": "srne_modbus/smx_ii.json",
+   "register_schema_name": "srne_modbus/smx_ii_24v.json",
+   "tier": "full",
+   "read_only": false,
    "support_capture_policy": "srne_modbus"
   },
   {
@@ -2916,6 +3027,21 @@
    }
   },
   {
+   "entry_key": "easun_smx_ii_24v_owner_unit",
+   "surface_key": "srne_modbus_smx_ii",
+   "model_name": "EASUN iSolar SMX II 3.6KW (24 V; verified owner unit)",
+   "priority": 130,
+   "family_fallback": false,
+   "anchors": [
+    {"key": "protocol.protocol_id", "equals": "SRNE_MODBUS"},
+    {"key": "identity.product_info", "equals": "SR-2206260036-300917"}
+   ],
+   "provenance": {
+    "sources": ["Owner nameplate PXL_20261002_204834503.jpg confirms ISolar-SMX-II-3.6KW, 24 V and serial SR-2206260036-300917-B02; Modbus product-info reads the first 20 serial characters. This is one unit, not a model-wide serial pattern."],
+    "confidence": "owner-nameplate-exact-unit-identity"
+   }
+  },
+  {
    "entry_key": "srne_modbus_family",
    "surface_key": "srne_modbus_read_only",
    "model_name": "SRNE-compatible Modbus family",
@@ -2937,7 +3063,7 @@
     "sources": [
      "private register map: SRNE-compatible Modbus product-info and telemetry ranges"
     ],
-    "confidence": "third-party-map-unconfirmed"
+    "confidence": "family-only-read-only"
    }
   },
   {

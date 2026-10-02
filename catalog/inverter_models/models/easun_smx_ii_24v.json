@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "model_key": "easun_smx_ii_24v",
+  "manufacturer": "EASUN",
+  "model": "iSolar SMX II 3.6KW 24V",
+  "aliases": ["EASUN iSolar SMX II 3.6KW"],
+  "lifecycle": "experimental",
+  "variants": [
+    {
+      "variant_key": "smx_ii_24v",
+      "label": "SMX-II 24 V; exact owner-unit identification only",
+      "device_descriptor_keys": ["easun_smx_ii_24v_owner_unit"],
+      "known_firmware": []
+    }
+  ],
+  "validation": {"hardware": "reported", "telemetry": "partial", "controls": "partial"},
+  "coverage": {
+    "runtime_control_surface": "available",
+    "smartess_control_surface": "not_applicable",
+    "vendor_register_map": "partial",
+    "notes": ["The separate SMX-II schema and profile retain community-backed controls, but no generic SRNE descriptor selects them."]
+  },
+  "known_limitations": [
+    "Automatic profile selection is limited to the one exact owner-unit serial confirmed by a 24 V nameplate; other SMX-II units remain read-only until independently identified.",
+    "A generic SR marker, serial number format, measured battery voltage or user-editable model label is insufficient.",
+    "The 20-33 V control limits and 0.2 V register scaling apply only to the 24 V profile."
+  ],
+  "knowledge_summary": "Separate identity-gated 24 V SMX-II controls with exact-register readback; unknown and other SRNE models remain read-only.",
+  "source_keys": ["jsayol_easun_modbus", "vladyspavlov_smx_ii_esphome", "owner_smx_ii_24v_nameplate"]
+}

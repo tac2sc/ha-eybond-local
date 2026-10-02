@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "source_key": "owner_smx_ii_24v_nameplate",
+  "kind": "private_message",
+  "title": "Owner SMX-II 24 V nameplate and Modbus product-info capture",
+  "reference": "owner-photo:PXL_20261002_204834503.jpg",
+  "captured_at": "2026-10-02",
+  "visibility": "private",
+  "summary": "Nameplate confirms ISolar-SMX-II-3.6KW, 24 V nominal, 20-33 V input and serial SR-2206260036-300917-B02. Only its exact 20-character Modbus serial identity is allowlisted, not the SR- prefix or other units.",
+  "assertions": ["commercial_identity", "runtime_compatibility"]
+}

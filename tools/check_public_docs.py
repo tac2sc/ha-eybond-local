@@ -33,6 +33,7 @@ USER_GUIDE_MARKDOWN = (
     REPO_ROOT / "docs" / "user" / "REMOTE_SETUP.md",
     REPO_ROOT / "docs" / "user" / "RUNTIME_AND_INVERTER.md",
     REPO_ROOT / "docs" / "user" / "SETUP_AND_DISCOVERY.md",
+    REPO_ROOT / "docs" / "user" / "SRNE_EASUN_SMX_II_CONTROLS.md",
     REPO_ROOT / "docs" / "user" / "SUPPORT_ARCHIVE.md",
     REPO_ROOT / "docs" / "generated" / "INVERTER_MODEL_CATALOG.generated.md",
 )
@@ -95,6 +96,11 @@ _REQUIRED_USER_GUIDE_MARKERS = {
         "Full Control",
         "What write confirmation means",
         "Intentionally unavailable operations",
+    ),
+    REPO_ROOT / "docs" / "user" / "SRNE_EASUN_SMX_II_CONTROLS.md": (
+        "Control exposure",
+        "Write confirmation",
+        "Deliberate exclusions",
     ),
     REPO_ROOT / "docs" / "user" / "SUPPORT_ARCHIVE.md": (
         "Use saved cloud evidence",

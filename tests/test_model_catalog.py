@@ -189,7 +189,7 @@ class RealCatalogTests(unittest.TestCase):
         self.assertEqual(pi.protocol, "pi30")
         self.assertEqual(pi.detection, "anchors")
 
-    def test_read_only_model_is_marked_read_only(self) -> None:
+    def test_srne_family_does_not_expose_smx_ii_controls(self) -> None:
         resolved = resolve_descriptor("srne_modbus_family", RUNTIME)
         self.assertTrue(resolved.read_only)
         self.assertEqual(resolved.tier, "partial")
@@ -439,7 +439,7 @@ class CoverageCrossCheckTests(unittest.TestCase):
             return validate_catalog(base, runtime_catalog=RUNTIME)
 
     def test_available_coverage_on_read_only_surface_errors(self) -> None:
-        model = _ok_model(descriptor="srne_modbus_family")  # read-only surface
+        model = _ok_model(descriptor="pi18_family")  # read-only surface
         model["coverage"]["runtime_control_surface"] = "available"
         report = self._validate(model)
         self.assertTrue(
@@ -481,7 +481,7 @@ class JournalGroupingTests(unittest.TestCase):
             "schema_version": 1, "model_key": "ro", "manufacturer": "A", "model": "M",
             "aliases": [], "lifecycle": "supported",
             "variants": [{"variant_key": "v", "label": "V",
-                          "device_descriptor_keys": ["srne_modbus_family"]}],
+                          "device_descriptor_keys": ["pi18_family"]}],
             "validation": {"hardware": "confirmed", "telemetry": "confirmed", "controls": "confirmed"},
             "coverage": {
                 "runtime_control_surface": "read_only",

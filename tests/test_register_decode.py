@@ -143,6 +143,13 @@ class DecodeBlockTests(unittest.TestCase):
         self.assertEqual(decode_block(10, [830], specs), {"value": "08:30"})
         self.assertEqual(decode_block(10, [1260], specs), {})
 
+    def test_srne_datetime_decodes_packed_register_bytes(self) -> None:
+        specs = (_spec(word_count=3, combine="srne_datetime"),)
+
+        decoded = decode_block(10, [0x3808, 0x160C, 0x2238], specs)
+
+        self.assertEqual(decoded["value"], "2026-09-22 12:34:56")
+
     def test_ascii_styles_filter_differently(self) -> None:
         # 0x2A is "*" — printable but outside the model charset.
         self.assertEqual(decode_ascii_word(0x2A41, style="printable"), "*A")

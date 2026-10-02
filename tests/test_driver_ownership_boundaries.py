@@ -509,19 +509,21 @@ class TypedWorkflowBoundaryGuard(unittest.TestCase):
         )
 
 
-# --- Follow-up fix 3: read-only SRNE does not opt into write classification ----
+# --- SRNE owns Modbus write classification after writable SMX-II support ----
 
 
-class SrneReadOnlyClassificationGuard(unittest.TestCase):
-    def test_srne_does_not_inherit_modbus_write_error_mixin(self) -> None:
-        self.assertNotIsInstance(SrneModbusDriver(), ModbusWriteErrorMixin)
-        self.assertNotIn(ModbusWriteErrorMixin, SrneModbusDriver.__mro__)
+class SrneWriteClassificationGuard(unittest.TestCase):
+    def test_srne_inherits_modbus_write_error_mixin(self) -> None:
+        self.assertIsInstance(SrneModbusDriver(), ModbusWriteErrorMixin)
+        self.assertIn(ModbusWriteErrorMixin, SrneModbusDriver.__mro__)
 
-    def test_srne_classification_is_empty_for_modbus_exception(self) -> None:
+    def test_srne_classifies_modbus_exception(self) -> None:
         classification = SrneModbusDriver().classify_write_error(
             _capability(), ModbusError("exception_code:1"), operating_mode="Off-Grid"
         )
-        self.assertTrue(classification.is_empty)
+        self.assertFalse(classification.is_empty)
+        assert classification.blocker is not None
+        self.assertEqual(classification.blocker.code, "illegal_function")
 
     def test_write_capable_modbus_drivers_still_classify(self) -> None:
         from custom_components.eybond_local.drivers.modbus_catalog import ModbusCatalogDriver

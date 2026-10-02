@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_key": "vladyspavlov_smx_ii_esphome",
+  "kind": "register_map",
+  "title": "SRNE/EASUN SMX-II ESPHome configuration",
+  "reference": "https://gist.github.com/vladyspavlov/d7819b255a81ea45659e63a1a92a66b2",
+  "captured_at": "2026-09-22",
+  "visibility": "public",
+  "summary": "Community ESPHome configuration independently corroborating the SMX-II 9600-8N1 slave-1 runtime and high-address configuration map.",
+  "assertions": [
+    "register_map",
+    "runtime_compatibility",
+    "write_validation"
+  ]
+}

@@ -13,6 +13,7 @@ release work; they are not required to use the integration.
 - [Setup and Discovery](user/SETUP_AND_DISCOVERY.md) — collector-first setup, scan results, address confirmation, background discovery, and manual setup
 - [Runtime Detection and Entities](user/RUNTIME_AND_INVERTER.md) — driver detection, Fast and Full protocol checks, polling, controls, and entity availability
 - [Kevolt / Deye-Compatible Advanced Controls](user/KEVOLT_DEYE_CONTROLS.md) — opt-in testing, read-back behavior, and intentionally excluded operations for the experimental 8 kW control surface
+- [SRNE / EASUN SMX-II Monitoring and Controls](user/SRNE_EASUN_SMX_II_CONTROLS.md) — register coverage, conditional controls, exact-register read-back, and deliberate safety exclusions
 - [Collector Management](user/COLLECTOR_MANAGEMENT.md) — cloud connection profiles, Wi-Fi, restart, UART, virtual bridges, and proxy-capture basics
 - [Device Learning](user/DEVICE_LEARNING.md) — read-only cloud evidence and active verification of extra sensors and controls
 - [Diagnostic Commands](user/DIAGNOSTIC_COMMANDS.md) — advanced, developer-provided read/write scenarios and shareable results

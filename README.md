@@ -375,6 +375,7 @@ You do not need to delete the integration or reset the collector to report this.
 - [Setup and discovery](docs/user/SETUP_AND_DISCOVERY.md)
 - [Runtime detection and entities](docs/user/RUNTIME_AND_INVERTER.md)
 - [Kevolt / Deye-compatible advanced controls](docs/user/KEVOLT_DEYE_CONTROLS.md) — experimental opt-in settings for the documented 80 kW register map
+- [SRNE / EASUN SMX-II monitoring and controls](docs/user/SRNE_EASUN_SMX_II_CONTROLS.md) — expanded telemetry, conditional writes, and two-stage read-back confirmation
 - [Collector management](docs/user/COLLECTOR_MANAGEMENT.md)
 - [Device learning](docs/user/DEVICE_LEARNING.md)
 - [Diagnostic commands](docs/user/DIAGNOSTIC_COMMANDS.md) — advanced, developer-directed scenarios

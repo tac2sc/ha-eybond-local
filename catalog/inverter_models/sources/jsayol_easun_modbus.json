@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_key": "jsayol_easun_modbus",
+  "kind": "register_map",
+  "title": "easun-modbus SMX-II 3.6 kW implementation",
+  "reference": "https://github.com/jsayol/easun-modbus",
+  "captured_at": "2026-09-22",
+  "visibility": "public",
+  "summary": "Open-source Modbus implementation tested by its author with an EASUN iSolar SMX II 3.6 kW over USB. It documents runtime, energy and configuration registers and uses FC06 for configuration writes.",
+  "assertions": [
+    "register_map",
+    "runtime_compatibility",
+    "write_validation"
+  ]
+}
