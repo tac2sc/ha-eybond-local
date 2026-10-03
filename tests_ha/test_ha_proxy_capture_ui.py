@@ -1,4 +1,5 @@
 """Capture actions and explanations use the same current readiness snapshot."""
+import asyncio
 from dataclasses import replace
 from unittest.mock import AsyncMock, PropertyMock, patch
 
@@ -9,6 +10,75 @@ from custom_components.eybond_local.support.acquisition import (
     SupportAcquisitionReadiness, SupportOperationReadiness,
 )
 from test_ha_config_flow import collector_entry
+
+
+@pytest.mark.parametrize("action", ["refresh", "stop"])
+async def test_capture_status_does_not_wait_for_inverter_poll(
+    hass, collector_entry, fake_runtime, action,
+):
+    """Refresh (including an already-stopped capture) is a view, not a poll."""
+    assert await hass.config_entries.async_setup(collector_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = collector_entry.runtime_data
+    first = await hass.config_entries.options.async_init(collector_entry.entry_id)
+    flow = hass.config_entries.options._progress[first["flow_id"]]
+    ready = SupportOperationReadiness(visible=True, can_start=True, blocker="")
+    readiness = SupportAcquisitionReadiness(
+        collector_identified=True, inverter_identified=False,
+        cloud_metadata_read=ready, proxy_capture=ready, active_control_learning=ready,
+    )
+    options = dict(collector_entry.options)
+    poll_gate = asyncio.Event()
+    try:
+        with patch.object(type(coordinator), "support_acquisition_readiness",
+                          new_callable=PropertyMock, return_value=readiness), \
+             patch.object(coordinator, "async_request_refresh", new_callable=AsyncMock,
+                          side_effect=poll_gate.wait) as poll, \
+             patch.object(coordinator, "async_stop_proxy_capture", new_callable=AsyncMock,
+                          side_effect=RuntimeError("proxy_capture_not_running")) as stop, \
+             patch.object(coordinator, "async_touch_proxy_capture_lease",
+                          new_callable=AsyncMock) as touch:
+            async with asyncio.timeout(1):
+                result = await flow.async_step_proxy_capture({"proxy_capture_action": action})
+            assert result["type"] == "form"
+            assert result["step_id"] == "proxy_capture"
+            assert not result["errors"]
+            poll.assert_not_awaited()
+            touch.assert_not_awaited()
+            assert stop.await_count == (1 if action == "stop" else 0)
+        assert dict(collector_entry.options) == options
+    finally:
+        poll_gate.set()
+        hass.config_entries.options.async_abort(first["flow_id"])
+        await hass.config_entries.async_unload(collector_entry.entry_id)
+
+
+async def test_auto_allows_capture_but_not_unidentified_inverter_writes(
+    hass, collector_entry, fake_runtime,
+):
+    assert await hass.config_entries.async_setup(collector_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = collector_entry.runtime_data
+    coordinator.data = replace(
+        coordinator.data, connected=True, inverter=None,
+        values={"runtime_driver_state": "driver_unbound"},
+    )
+    try:
+        for mode, allowed in (("read_only", False), ("auto", True)):
+            with patch.object(type(coordinator), "control_mode", new_callable=PropertyMock,
+                              return_value=mode):
+                assert not coordinator.controls_enabled
+                overview = build_proxy_capture_overview(
+                    control_mode=mode, collector_control_allowed=coordinator.collector_actions_enabled,
+                    collector_connected=True, cloud_tools_allowed=True,
+                    collector_cloud_family="valuecloud_at", collector_session_protocol="at_text",
+                    cloud_session_protocol="at_text", current_endpoint="cloud.example,18899,TCP",
+                    upstream_endpoint="cloud.example,18899,TCP", target_endpoint="192.0.2.10,18899,TCP",
+                )
+                assert overview.can_start is allowed
+                assert overview.blocking_reason == ("" if allowed else "collector_control_disabled")
+    finally:
+        await hass.config_entries.async_unload(collector_entry.entry_id)
 
 
 @pytest.mark.parametrize("connected", [False, True])

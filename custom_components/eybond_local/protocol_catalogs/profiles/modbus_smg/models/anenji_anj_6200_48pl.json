@@ -1,0 +1,24 @@
+{
+  "extends": "./smg_6200.json",
+  "profile_key": "modbus_smg_anenji_anj_6200_48pl",
+  "title": "Anenji ANJ-6200-48PL",
+  "driver_key": "modbus_smg",
+  "protocol_family": "modbus_smg",
+  "capabilities": [
+    {
+      "key": "output_source_priority",
+      "tested": true,
+      "provenance": "verified",
+      "support_tier": "",
+      "support_notes": "Layout 2/model 0x2300 only. Register 301 follows the Protocol 2 output enum and ANJ-6200-48PL F1-01 manual. The owner confirmed all four modes in HA and on the inverter display in issue #51 on 2026-09-29. This confirms setting selection, not grid-export or external CT operation.",
+      "change_summary": "Changes output priority. SUF permits export to the grid; ZEC requires the external CT setup described in the inverter manual.",
+      "note": "A device rejection remains a failure. Control mode does not change inverter settings or satisfy CT/grid-export prerequisites.",
+      "choices": [
+        {"value": 1, "label": "Solar-Utility-Battery (SUB)"},
+        {"value": 2, "label": "Solar-Battery-Utility (SBU)"},
+        {"value": 3, "label": "Solar-Utility-Battery with Grid Export (SUF)"},
+        {"value": 4, "label": "Self-Consumption (ZEC)"}
+      ]
+    }
+  ]
+}

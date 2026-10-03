@@ -17,6 +17,20 @@ The inverter may appear after the collector. A slow protocol or a Full scan can
 take more than one normal polling interval. **Poll Context** shows whether the
 integration is detecting an inverter, reading it, or only checking the collector.
 
+### PI30 names shared by several brands
+
+Some inverters report a firmware identifier instead of their retail model.
+For example, `VMII-NXPW5KW` appears on both PowMr and Victor units, including
+different power ratings. These devices appear as **PI30 VMII-NXPW5KW**; the
+name alone does not mean 5 kW, 4.2 kW, or a particular brand. Rated power is read
+separately from the inverter.
+
+Older builds labelled this shared profile **PowMr 4.2kW**. The corrected name
+keeps the same protocol, profile, controls and entity IDs. You do not need to
+delete and add the device again. A custom name set in Home Assistant is retained.
+The model catalog lists confirmed retail models separately; it does not turn a
+shared firmware identifier into a unique brand match.
+
 ## Polling and inverter detection
 
 Open **Settings → Devices & Services → EyeBond Local → Configure → Polling and
@@ -107,6 +121,176 @@ include the Load Power and Estimated Load Energy Today history around that time
 with a fresh Support Archive. Do not change scaling or delete the integration
 just to clear the old total.
 
+### PV3300 direction and load percentage
+
+For a device identified as **MUST PV3300**, the test build also corrects **Load
+Percent** and the signs used for battery/grid energy flows. Positive **Battery
+Power** and **Battery Current** mean charging; negative means discharging.
+Positive **Grid Power** means import; negative means export. The manufacturer's
+app may use the opposite convention. Native **Inverter Power** is a separate
+measurement and keeps its original sign.
+
+Already added, confirmed PV3300 devices receive the corrected map after updating
+and restarting HA; do not remove and re-add them. Existing entity IDs and
+history are kept. Earlier battery charge/discharge estimates are not repaired
+retroactively. Other MUST models keep their existing interpretation.
+
+Custom or learned maps are not rewritten. A learned map tied to the older
+generic MUST schema may stop applying after the base map changes; it needs to
+be regenerated for PV3300 rather than having its compatibility check bypassed.
+
+MUST AC current readings are named **Inverter Current**, **Grid Current**, and
+**Load Current**. The first two were previously called **Output Current** and
+**AC Output Current**; entity IDs and history are kept. Grid Current can be zero
+when the grid is disconnected. If the other currents stay at zero despite a
+load, create a Support Archive: for PV3300 it compares the combined response
+with individual reads. The integration does not replace a reported zero with
+an estimated current.
+
+### MUST controls and battery percentage
+
+The MUST profile contains 27 document-backed controls. For a locally identified
+**PV3300**, four are marked tested: **Grid Max Charge Current**, **Max Combined
+Charge Current**, **Charge Source Priority**, and **Energy Use Mode**. They are
+available in **Auto** with high-confidence detection. The
+[issue #46 owner confirmation](https://github.com/groove-max/ha-eybond-local/issues/46#issuecomment-5939601570)
+reports successful local changes and HA readback, not independent validation of
+physical behavior or every supported value. The other 23 PV3300 controls and
+all controls on other MUST variants remain **untested** locally.
+
+To opt in to untested controls, open **Configure → Polling and inverter detection → Control mode → Full Control**.
+The controls belong to the inverter device's configuration section, not the
+collector. Selecting Full Control does not send a command or change inverter
+settings. **Off-Grid Output** is specifically the off-grid output enable; it is
+not a general inverter power switch or the separate cloud **Ongrid Switch**.
+
+**Upgrade note:** older builds incorrectly treated 20 cloud-listed controls as
+tested. Only the four PV3300 controls above now qualify for **Auto**. Use Full
+Control if you choose to test the others; review automations that referenced the
+earlier controls. Updating and restarting HA refreshes confirmed PV3300 bindings
+without re-adding the device. **Read Only** still blocks all controls. Telemetry
+and the selected control mode are not changed. No local hardware qualification
+is implied by the existing broad setpoint limits; use only settings appropriate
+to your exact model and battery.
+
+PV3300 devices with supported BMS communication now expose **Battery State of
+Charge** directly from the BMS, not an estimate from battery voltage. Separate
+**BMS Battery Voltage**, **BMS Battery Current** and **BMS Battery Temperature**
+appear under inverter diagnostics. Update the main test build and restart HA;
+there is no need to re-add the device or enable Full Control for these readings.
+
+These BMS readings do not replace the inverter's existing battery measurements.
+**BMS Battery Current** keeps the manufacturer's signed value; do not assume it
+uses the same direction convention as **Battery Current**. Battery capacity in
+Ah is a setting, not remaining charge.
+
+The optional BMS request has a three-second limit. Missing or invalid readings
+become unavailable, not zero or a frozen last value. Other inverter telemetry
+continues; after a failure or an empty BMS response the integration retries after
+one minute, or five minutes if the device explicitly rejects the command/address.
+A genuine 0% SOC with valid BMS data remains 0%. Other MUST models keep their
+existing map. A Support Archive also includes a separate bounded raw BMS read
+for troubleshooting.
+
+## SRNE partial battery / PV readings
+
+Some SRNE firmware rejects a combined battery/PV request while answering smaller
+documented groups. The test build tries those groups only after an explicit
+unsupported-address reply, not after a timeout. Available readings continue
+updating; unsupported groups stay unavailable. No setup change is needed, and
+this does not add inverter controls.
+
+## Hopewind / Bluesun profile
+
+The test build adds **Hopewind String (Protocol 0237)** telemetry, checked against
+local register readings from a Bluesun BSM15K-B. Keep detection on **Auto**.
+The integration shows a protocol-family name because these replies do not prove
+an exact retail model.
+
+Readings include PV voltage and power, AC generation, line-to-line grid
+voltages, phase currents, frequency, temperature, and daily/total PV energy.
+**Inverter AC Active Power** is generation from this inverter, not household
+consumption or net import/export at your electricity meter. No battery or home
+load measurements are inferred.
+
+Additional MPPT/string channels and raw fault diagnostics are disabled by
+default. Only enable channels actually present on your inverter; the family
+map includes more channels than some models have. Cloud analysis remains a
+separate feature and is not required for local telemetry.
+
+**Full Control** additionally exposes three **untested** settings: active-power
+regulation mode, active-power ratio (0–100%), and reactive-power regulation mode.
+The register addresses and current values were confirmed on a BSM15K-B, but
+local writes still need owner validation. Auto and Read-only do not expose these
+controls. Updating or selecting Full Control does not change any settings.
+
+Changing a regulation mode uses the inverter's existing setpoint; it does not
+set a new limit automatically. The existing kW, power-factor and reactive-ratio
+setpoints are available as diagnostics. Only use values appropriate to your
+installation. These are inverter-generation controls, not a site-wide
+zero-export configuration.
+
+The documented active-ratio write range stops at 100%. A firmware value such as
+110% is displayed as received, not silently changed or used to widen that range.
+Absolute-power and signed reactive/power-factor writes are not included yet;
+they need rated-power-dependent limits or additional numeric validation.
+
+Creating a Support Archive reads these settings too. It does not change those
+settings. SmartClient currently supports
+read-only cloud analysis, not active control learning; selecting Full Control
+does not bypass that limitation.
+
+## EyeBond 09C1 family
+
+The unreleased test code includes this read-only profile for the protocol
+captured on a ZL Power GSIII. Keep detection on **Auto**. A matching inverter
+appears as **EyeBond 09C1 family**: the replies identify the protocol, not a
+unique retail model or serial number. A similar brand/model name alone is not
+enough to establish compatibility.
+
+Readings include grid and output voltage/frequency, battery voltage, load
+percentage, temperature, PV voltage/current and operating status. Grid frequency
+and output frequency are read separately; neither substitutes for the other.
+Rated values are diagnostics, disabled by default. **Rated Power** is not a
+measurement of actual output power. **AC Charger Enabled** describes the charger
+state, not a measured charging current or power.
+
+**Grid Fault Voltage** is a separate field named that way in the manufacturer's
+protocol, kept under diagnostics and disabled by default. Enabling it makes its
+reading available for dashboards too; the diagnostic category does not change
+the value. It is not automatically substituted for Grid Voltage based on one
+comparison with a meter.
+
+The legacy **PV Voltage/Current** readings still come from `PV?`, not a sum of
+two inputs. Optional `PV1` and `PV2` reads provide separate voltage/current
+channels after both commands have returned valid samples in the current runtime.
+Their numbers follow the **protocol commands**, not guaranteed physical socket
+labels: the issue #50 owner's unit has crossed labels. No global port swap,
+combined current/power, or guessed energy total is applied. The owner's raw
+captures were taken at different times, not as a simultaneous total.
+
+Allow at least two polling cycles for the separate readings to become available.
+The channels are checked in turn, less frequently than the main readings, to
+limit extra load on the collector. Missing or outdated values become unavailable;
+they are not replaced with the other channel's value. After repeated failures,
+use **Re-check supported commands** to retry. The old `PV?` readings continue
+independently. A Support Archive includes both responses and sample ages.
+
+For mains presence, use **Grid Available**. An absent grid during normal battery
+operation is not an inverter fault. A dashboard expecting cloud `Status` enum
+names needs an appropriate input/mapping; the cloud's `FAULT` label is not a
+local mains-presence signal and is not synthesized here.
+
+If a PV, output-frequency or rated-values request fails, that group's old values
+become unavailable while basic readings can continue. If the main status request
+fails, normal connection recovery applies. No inverter serial, battery percentage,
+measured power or energy counters are guessed. **Full Control** does not add
+controls: a verified command map is not available for this profile yet.
+
+This is separate from the Short-ASCII profile below. Local inverter support also
+does not repair a collector's saved cloud-server address; those settings remain
+under **Collector connection and cloud**.
+
 ## EyeBond Short-ASCII family
 
 This read-only profile is included in the unreleased test code. It supports
@@ -159,6 +343,17 @@ Support Archive for review; it can include the optional raw replies. Do not
 select a similar retail model by guesswork.
 
 ## Control mode
+
+For **Anenji ANJ-6200-48PL** (layout 2/model `0x2300`), Output Source Priority
+uses **SUB / SBU / SUF / ZEC**, not the SMG 6200 mode names. The owner has confirmed
+all four selections in HA and on the inverter display, so this selector is
+available in **Auto** as well as Full Control; Read-only still blocks it.
+This confirms switching the setting, not the electrical operation of grid export
+or the CT installation. SUF permits grid export; ZEC requires the external CT
+configuration described in the inverter manual. A corrected label
+does not remove inverter-side restrictions: rejected writes are still reported.
+Updating does not change the selected inverter mode. Existing entries do not
+need to be removed and added again.
 
 The optional **Write Capabilities** and **Blocked Write Capabilities** diagnostic
 sensors show how many settings are listed. Open the entity's attributes to see

@@ -561,6 +561,86 @@
    "layouts": []
   },
   {
+   "key": "eybond_09c1",
+   "transport_key": "eybond_09c1",
+   "probe_timeout": 16,
+   "signature_timeout": 4,
+   "probe_targets": [
+    {
+     "devcode": 1,
+     "collector_addr": 255,
+     "device_addr": 1
+    }
+   ],
+   "probe_actions": [
+    {
+     "key": "09c1.q1",
+     "kind": "ascii_command",
+     "command": "Q1",
+     "parser_key": "09c1.q1",
+     "cost": 1,
+     "optional": false,
+     "timeout": 4,
+     "evidence_fields": [
+      {
+       "key": "shape.q1_length",
+       "source_key": "urtu09c1_q1_length"
+      }
+     ]
+    },
+    {
+     "key": "09c1.pv",
+     "kind": "ascii_command",
+     "command": "PV?",
+     "parser_key": "09c1.pv",
+     "cost": 1,
+     "optional": false,
+     "timeout": 4,
+     "evidence_fields": [
+      {
+       "key": "shape.pv_length",
+       "source_key": "urtu09c1_pv_length"
+      }
+     ]
+    },
+    {
+     "key": "09c1.f",
+     "kind": "ascii_command",
+     "command": "F",
+     "parser_key": "09c1.f",
+     "cost": 1,
+     "optional": false,
+     "timeout": 4,
+     "evidence_fields": [
+      {
+       "key": "shape.f_length",
+       "source_key": "urtu09c1_f_length"
+      },
+      {
+       "key": "protocol.protocol_id",
+       "source_key": "protocol_id"
+      }
+     ]
+    },
+    {
+     "key": "09c1.qf",
+     "kind": "ascii_command",
+     "command": "QF",
+     "parser_key": "09c1.qf",
+     "cost": 1,
+     "optional": false,
+     "timeout": 4,
+     "evidence_fields": [
+      {
+       "key": "shape.qf_length",
+       "source_key": "urtu09c1_qf_length"
+      }
+     ]
+    }
+   ],
+   "layouts": []
+  },
+  {
    "key": "eybond_g_ascii",
    "transport_key": "eybond_g_ascii",
    "probe_timeout": 12.0,
@@ -824,6 +904,32 @@
        "words": 1
       }
      ]
+    },
+    {
+     "key": "modbus_catalog.hopewind_ratings",
+     "kind": "modbus_read",
+     "register": 40646,
+     "count": 2,
+     "function": 3,
+     "cost": 2,
+     "optional": true,
+     "evidence_fields": [
+      {"key": "identity.hopewind_rated_kw", "source_key": "hopewind_rated_kw", "register": 40646},
+      {"key": "identity.hopewind_rated_voltage", "source_key": "hopewind_rated_voltage", "register": 40647}
+     ]
+    },
+    {
+     "key": "modbus_catalog.hopewind_state",
+     "kind": "modbus_read",
+     "register": 40546,
+     "count": 2,
+     "function": 3,
+     "cost": 2,
+     "optional": true,
+     "evidence_fields": [
+      {"key": "identity.hopewind_switch", "source_key": "hopewind_switch", "register": 40546},
+      {"key": "identity.hopewind_state", "source_key": "hopewind_state", "register": 40547}
+     ]
     }
    ],
    "layouts": [],
@@ -835,6 +941,10 @@
   }
  ],
  "support_capture_policies": {
+  "hopewind_0237": {
+   "ranges": [[40500, 71], [40571, 29], [40600, 51]],
+   "notes": ["Manufacturer Hopewind protocol 567 / 0237: read-only FC03 evidence; identity block can contain a serial number."]
+  },
   "smg_protocol_1": {
    "ranges": [
     [
@@ -1085,6 +1195,10 @@
    "ranges": [],
    "notes": ["Bounded read-only MP/Q1/MD/F/RB FC4 evidence only. F/RB are optional runtime reads, not detection prerequisites. No raw UART, auxiliary query or write command."]
   },
+  "eybond_09c1": {
+   "ranges": [],
+   "notes": ["Bounded read-only Q1/QF/PV?/F/G? FC4 capture. G? and PV energy remain raw evidence; no writes or inferred retail identity."]
+  },
   "eybond_g_ascii": {
    "ranges": [],
    "notes": [
@@ -1326,6 +1440,17 @@
    "tier": "full",
    "read_only": false,
    "default_for_driver": true,
+   "support_capture_policy": "smg_protocol_1"
+  },
+  {
+   "key": "anenji_anj_6200_48pl_full",
+   "protocol_key": "modbus_smg",
+   "driver_key": "modbus_smg",
+   "variant_key": "anenji_anj_6200_48pl",
+   "profile_name": "modbus_smg/models/anenji_anj_6200_48pl.json",
+   "register_schema_name": "modbus_smg/models/anenji_anj_6200_48pl.json",
+   "tier": "full",
+   "read_only": false,
    "support_capture_policy": "smg_protocol_1"
   },
   {
@@ -1597,6 +1722,17 @@
    "support_capture_policy": "must_pv_ph18"
   },
   {
+   "key": "must_pv3300_full",
+   "protocol_key": "must_pv_ph18",
+   "driver_key": "must_pv_ph18",
+   "variant_key": "pv3300",
+   "profile_name": "must_pv_ph18/pv3300.json",
+   "register_schema_name": "must_pv_ph18/pv3300.json",
+   "tier": "full",
+   "read_only": false,
+   "support_capture_policy": "must_pv_ph18"
+  },
+  {
    "key": "eybond_g_ascii_gootu_gt_h2436m14p5",
    "protocol_key": "eybond_g_ascii",
    "driver_key": "eybond_g_ascii",
@@ -1617,6 +1753,18 @@
    "tier": "full",
    "read_only": false,
    "support_capture_policy": "eybond_g_ascii"
+  },
+  {
+   "key": "eybond_09c1_read_only",
+   "protocol_key": "eybond_09c1",
+   "driver_key": "eybond_09c1",
+   "variant_key": "urtu09c1",
+   "profile_name": "",
+   "register_schema_name": "eybond_09c1/base.json",
+   "tier": "partial",
+   "read_only": true,
+   "default_for_driver": true,
+   "support_capture_policy": "eybond_09c1"
   },
   {
    "key": "eybond_short_ascii_read_only",
@@ -1641,6 +1789,17 @@
    "read_only": true,
    "default_for_driver": true,
    "support_capture_policy": "eybond_g_ascii"
+  },
+  {
+   "key": "hopewind_0237_untested_controls",
+   "protocol_key": "modbus_catalog",
+   "driver_key": "modbus_catalog",
+   "variant_key": "hopewind_0237",
+   "profile_name": "modbus_catalog/hopewind_0237.json",
+   "register_schema_name": "hopewind_0237/base.json",
+   "tier": "full",
+   "read_only": false,
+   "support_capture_policy": "hopewind_0237"
   },
   {
    "key": "aohai_fsa_read_only",
@@ -2446,7 +2605,7 @@
     "serial_ascii_plausible"
    ],
    "model_name": "Anenji ANJ-6200-48PL",
-   "surface_key": "smg_6200_full",
+   "surface_key": "anenji_anj_6200_48pl_full",
    "runtime_probe": {
     "validation": [
      {
@@ -2503,7 +2662,8 @@
      "github:issue#8 Anenji ANJ-6200-48PL",
      "corpus:donor …57E (capture, 2026-06-15)",
      "fingerprint layout=2 model_code=8960 rated_power=6200",
-     "support archive runtime bound successfully to SMG 6200 register schema/profile"
+     "github:issue#51 register 301 enum correction; ANJ-6200-48PL manual F1-01 and GM6200 Communication Protocol 2",
+     "SUB/SBU/SUF/ZEC selection user-confirmed in issue #51 on 2026-09-29; grid-export/CT operation not validated; remaining historical SMG 6200 surface unchanged"
     ],
     "confidence": "capture-derived"
    }
@@ -2529,7 +2689,10 @@
   {
    "entry_key": "pi30_vmii_nxpw5kw",
    "surface_key": "pi30_vmii_full",
-   "model_name": "PowMr 4.2kW",
+   "model_name": "PI30 VMII-NXPW5KW",
+   "aliases": [
+    "PowMr 4.2kW"
+   ],
    "priority": 220,
    "anchors": [
     {
@@ -2543,7 +2706,8 @@
    ],
    "provenance": {
     "sources": [
-     "fixture:pi30-vmii-nxpw5kw-live-capture"
+     "fixture:pi30-vmii-nxpw5kw-live-capture",
+     "project-issue:54"
     ],
     "confidence": "capture-derived"
    }
@@ -2735,6 +2899,23 @@
    }
   },
   {
+   "entry_key": "must_pv3300",
+   "surface_key": "must_pv3300_full",
+   "model_name": "MUST PV3300",
+   "priority": 220,
+   "anchors": [
+    {"key": "protocol.protocol_id", "equals": "MUST_PV_PH18"},
+    {"key": "identity.model_number", "equals": "PV3300"}
+   ],
+   "provenance": {
+    "sources": [
+     "manufacturer protocol 6422 / 1916",
+     "github:issue#46 LCD and cloud comparisons during battery charge and discharge"
+    ],
+    "confidence": "documented-with-field-telemetry"
+   }
+  },
+  {
    "entry_key": "srne_modbus_family",
    "surface_key": "srne_modbus_read_only",
    "model_name": "SRNE-compatible Modbus family",
@@ -2840,6 +3021,42 @@
    }
   },
   {
+   "entry_key": "eybond_09c1_family",
+   "surface_key": "eybond_09c1_read_only",
+   "model_name": "EyeBond 09C1 family",
+   "priority": 40,
+   "family_fallback": true,
+   "anchors": [
+    {
+     "key": "protocol.protocol_id",
+     "equals": "EYBOND_09C1"
+    },
+    {
+     "key": "shape.q1_length",
+     "equals": 47
+    },
+    {
+     "key": "shape.pv_length",
+     "equals": 19
+    },
+    {
+     "key": "shape.f_length",
+     "equals": 22
+    },
+    {
+     "key": "shape.qf_length",
+     "equals": 6
+    }
+   ],
+   "provenance": {
+    "sources": [
+     "Manufacturer 09C1 XML (devcode 2497) and DevUrtu09C1_01: QF/Q1/PV?/G?/F; FC4 payloads contain command + CR with no address byte or checksum.",
+     "Issue #50 ZL Power GSIII read-only capture: twelve complete command cycles, route devcode 1 / collector address 255. No retail-model or serial-number fingerprint."
+    ],
+    "confidence": "documented-and-capture-qualified-read-only"
+   }
+  },
+  {
    "entry_key": "eybond_short_ascii_family",
    "surface_key": "eybond_short_ascii_read_only",
    "model_name": "EyeBond Short-ASCII family",
@@ -2904,6 +3121,23 @@
      "external JsdSolar SmartESS G-command discussion: confirms the same GPDAT0/GPV/GBAT/GMOD command family exists outside this capture"
     ],
     "confidence": "documented-read-only"
+   }
+  },
+  {
+   "entry_key": "hopewind_0237_family",
+   "surface_key": "hopewind_0237_untested_controls",
+   "model_name": "Hopewind String (Protocol 0237)",
+   "priority": 110,
+   "family_fallback": true,
+   "anchors": [
+    {"key": "identity.hopewind_rated_kw", "min": 3, "max": 80, "cost": 2},
+    {"key": "identity.hopewind_rated_voltage", "min": 100, "max": 800, "cost": 2},
+    {"key": "identity.hopewind_switch", "one_of": [0, 1], "cost": 2},
+    {"key": "identity.hopewind_state", "one_of": [1, 2, 4, 8, 16, 32, 64, 128, 256], "cost": 2}
+   ],
+   "provenance": {
+    "sources": ["manufacturer Hopewind protocol 567 / 0237 V100B002D000", "github:issue#23 three successful local FC03 blocks"],
+    "confidence": "documented-with-register-capture"
    }
   },
   {

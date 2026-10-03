@@ -111,6 +111,10 @@ Choosing an API never silently changes the task.
 
 For control verification:
 
+Connection preparation waits for an in-flight local poll to finish and prevents
+new polls from interrupting the checks, route change or startup recovery. This
+applies to active verification, not ordinary read-only cloud analysis.
+
 1. Home Assistant signs in to the selected cloud API with the credentials you entered.
 2. It verifies the exact device identity and asks which settings and fields the cloud knows for this
    device.
@@ -223,6 +227,33 @@ If you are helping add support for a model:
 4. Attach the ZIP to the GitHub issue.
 
 The Support Archive includes the relevant learning evidence.
+
+### Learning controls from SmartValue / ValueCloud
+
+For a supported Modbus inverter such as MUST PV3300, choose **Verify additional
+local controls** and **ValueCloud API**, using the account you use in SmartValue.
+The same endpoint-change and interception precautions above apply. The result
+can include controls missing from the built-in profile; it does not duplicate
+settings already provided by that profile or guarantee that every cloud control
+can be added.
+
+Select and apply the controls you want to try. Selected learned controls are
+available in Auto or Full Control; Read Only still blocks all writes. Learning
+identifies the local commands but blocks the test writes, so it does **not** prove
+that the real inverter accepted them. Tell the maintainer which controls you
+actually tested and share a fresh Support Archive afterward. You can also share
+the archive without applying any controls.
+
+An **Ongrid Switch** label does not by itself mean a complete inverter power
+switch. Check its actual effect separately, only when an interruption is safe
+and manual recovery is available. Do not assume that remote turn-on will remain
+possible after turning it off.
+
+New learned Modbus controls preserve the captured write-command type rather
+than substituting another one. Incomplete or conflicting captures stay support
+evidence instead of becoming writable controls. Previously generated local
+profiles are not rewritten by an update; rerun learning if you need to regenerate
+an older learned control with the corrected command type.
 
 ## If learning fails
 

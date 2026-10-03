@@ -20,11 +20,15 @@ class RuntimeInventoryTests(unittest.TestCase):
     def test_profile_names_are_derived_from_compiled_runtime_surfaces(self) -> None:
         names = runtime_profile_names()
 
-        self.assertEqual(len(names), 29)
+        self.assertEqual(len(names), 32)
+        self.assertIn("must_pv_ph18/base.json", names)
+        self.assertIn("must_pv_ph18/pv3300.json", names)
+        self.assertIn("modbus_catalog/hopewind_0237.json", names)
         self.assertIn("eybond_g_ascii/models/gootu_gt_h2436m14p5.json", names)
         self.assertIn("eybond_g_ascii/models/lvyuan_ty_sic_3_6kbe_w1.json", names)
         self.assertIn("modbus_smg/default.json", names)
         self.assertIn("modbus_smg/models/smg_6200.json", names)
+        self.assertIn("modbus_smg/models/anenji_anj_6200_48pl.json", names)
         self.assertIn("modbus_smg/models/anenji_4200_protocol_1.json", names)
         self.assertIn("modbus_smg/models/anenji_anj_5kw_48v_wifi.json", names)
         self.assertIn("modbus_smg/models/anenji_anj_11kw_48v_wifi_p.json", names)
@@ -49,15 +53,26 @@ class RuntimeInventoryTests(unittest.TestCase):
         summary = inventory["summary"]
 
         self.assertEqual(summary["profiles"], len(inventory["profiles"]))
-        self.assertEqual(summary["profiles"], 29)
-        self.assertEqual(summary["capabilities"], 1141)
-        self.assertEqual(summary["validation_state_counts"], {"tested": 424, "untested": 717})
+        self.assertEqual(summary["profiles"], 32)
+        self.assertEqual(summary["capabilities"], 1209)
+        # The separate PV3300 surface adds 27 controls: four owner-confirmed,
+        # 23 untested. The common MUST surface remains wholly untested.
+        self.assertEqual(summary["validation_state_counts"], {"tested": 438, "untested": 771})
         self.assertEqual(
             summary["support_tier_counts"],
-            {"blocked": 29, "conditional": 772, "standard": 340},
+            {"blocked": 31, "conditional": 799, "standard": 379},
         )
 
         profile_by_key = {item["profile_key"]: item for item in inventory["profiles"]}
+        self.assertEqual(
+            profile_by_key["must_pv_ph18/base.json"]["validation_state_counts"],
+            {"untested": 27},
+        )
+        self.assertEqual(
+            profile_by_key["must_pv_ph18/pv3300.json"]["validation_state_counts"],
+            {"tested": 4, "untested": 23},
+        )
+        self.assertEqual(profile_by_key["modbus_catalog/hopewind_0237.json"]["validation_state_counts"], {"untested": 3})
         self.assertIn("eybond_g_ascii_gootu_gt_h2436m14p5", profile_by_key)
         self.assertIn("eybond_g_ascii_lvyuan_ty_sic_3_6kbe_w1", profile_by_key)
         self.assertIn("smg_modbus", profile_by_key)
@@ -83,6 +98,10 @@ class RuntimeInventoryTests(unittest.TestCase):
         )
         self.assertEqual(profile_by_key["smg_modbus"]["capabilities"], 33)
         self.assertEqual(profile_by_key["modbus_smg_6200"]["capabilities"], 38)
+        self.assertEqual(
+            profile_by_key["modbus_smg_anenji_anj_6200_48pl"]["validation_state_counts"],
+            {"tested": 30, "untested": 8},
+        )
         self.assertEqual(
             profile_by_key["modbus_smg_anenji_4200_protocol_1"]["capabilities"],
             30,

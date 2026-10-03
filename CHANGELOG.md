@@ -9,6 +9,54 @@ the GitHub release body should be rendered from the matching version section her
 
 ### Added
 
+- Recorded Anenji GES48120M250-500P / Sumry-style register evidence and an
+  offline-tested read-only subset (#49). This is a research catalog entry,
+  not automatic device support: model/class identification still needs a
+  confirmed response. No additional live probes or controls are enabled.
+
+- Victor NM-PRO-6.2KW in the supported model catalog, backed by the owner's
+  PI30 archive and specifically reported working controls. It reuses the
+  existing VMII profile; no new device commands are introduced.
+
+- MUST PV3300 exposes documented BMS state of charge plus separate BMS voltage,
+  signed current and temperature, backed by a successful local capture (#46).
+  Missing/invalid BMS data is withdrawn without suppressing core telemetry;
+  bounded reads and retry delays protect devices without the optional block.
+  Support Archives retain a separate raw BMS read. Other MUST variants keep
+  their existing telemetry map.
+
+- Advanced setup can include up to eight known collector IPs in the ordinary
+  scan, alongside local discovery. Routed/VPN collectors no longer require a
+  hardcoded scan target. The list is setup-flow scoped; identity and recovery
+  checks remain mandatory.
+
+- Added a separate read-only **EyeBond 09C1 family** profile, qualified against
+  the manufacturer's map and ZL Power GSIII captures (#50). It reports input
+  and output voltage/frequency separately, battery voltage, load percentage,
+  temperature, PV voltage/current, status and ratings. No retail identity,
+  measured power, energy counters or controls are inferred from these replies.
+
+- EyeBond 09C1 adds separate PV1/PV2 voltage and current from optional queries
+  confirmed in ZL Power captures (#50). One bounded extra query per poll, a
+  slower channel cadence and per-device unsupported-command tracking protect
+  existing devices. Failed or expired channel readings are withdrawn; the
+  original `PV?` readings keep their entity IDs. Channel numbers follow the
+  protocol, not necessarily the inverter's physical labels; no combined power
+  or fault state is invented.
+
+- Support archives include individual MUST PV3300 current-register checks
+  when the combined block reports all three as zero (#46). These read-only
+  results stay separate from normal telemetry and do not enable controls.
+
+- Added a **Hopewind String (Protocol 0237)** profile, based on the
+  manufacturer's map and successful local reads from a Bluesun BSM15K-B (#23).
+  It exposes PV and AC generation, electrical readings, energy counters and
+  diagnostics. Detection identifies the protocol family, not the retail model.
+  AC generation is not household load or site grid import/export. Full Control
+  can expose three document-backed, untested settings: active-power mode and
+  ratio, and reactive-power mode. Current settings are readable; selecting Full
+  Control sends no writes. Protection, reset and grid-code controls stay absent.
+
 - SRNE support archives can check five smaller, documented battery/PV register
   groups after the inverter explicitly rejects the combined DC block (#44).
   These read-only diagnostics share a 15-second limit and stop on communication
@@ -32,6 +80,83 @@ the GitHub release body should be rendered from the matching version section her
   this is not full device or control support (#45).
 
 ### Fixed
+
+- Newly learned Modbus controls retain the captured FC06 or FC16 write command
+  through profile generation and runtime dispatch. Incomplete, conflicting or
+  unrepresentable write shapes remain support evidence instead of guessed
+  controls. The SMG driver also honors explicit FC06 declarations in existing
+  profiles; FC16 remains the default when no override is declared. Older learned
+  profiles need a new learning run to regenerate their command metadata.
+
+- Collector connection settings remain reachable before the inverter is
+  identified (#49). Unknown collector capabilities no longer imply a local-only
+  ESP collector or hide callback diagnostics. Endpoint changes still require
+  explicit confirmation and verified reconnection; known ESP restrictions stay.
+
+- Shared PI30 `VMII-NXPW5KW` identification no longer labels every matching
+  inverter as PowMr 4.2kW. It displays a neutral firmware-family name while
+  preserving the old name as a compatibility alias, the profile and entity IDs.
+
+- MUST PV/PH18 controls no longer claim local write verification based only on
+  cloud-catalog presence. The shared 27-control profile requires Full Control.
+  For PV3300 only, the owner has since confirmed four local writes and HA
+  readbacks: grid/combined charge-current limits, charge-source priority and
+  energy-use mode (#46). Those four are available in Auto; the other 23 and
+  other MUST variants remain untested. Updating sends no setting changes;
+  review automations that used previously overqualified controls.
+
+- Manual callback identity checks now honor the configured advertised callback
+  IP and port, separately from Home Assistant's local listener. NAT overrides
+  no longer apply only to later recovery/runtime requests.
+- Corrected the issue #6 catalog attribution: PI30 captures from Sumry devices
+  do not confirm Yingfa YF6.2K-2K-LEL-IF support. That model is now unresolved;
+  generic PI30 support and the independently evidenced issue #27 model remain.
+
+- Keep the configured callback IP when local-interface enumeration fails (#52).
+  The default-route address is no longer treated as a complete interface list;
+  existing BusyBox and collector-subnet discovery remain unchanged.
+
+- Refreshing the capture dialog no longer waits for an inverter poll or protocol
+  search (#49). Refreshing an already-stopped capture also stays local to the
+  dialog; neither action extends the capture timer.
+
+- Anenji ANJ-6200-48PL (layout 2/model `0x2300`) now uses its own
+  SUB/SBU/SUF/ZEC output-priority table instead of the SMG 6200 enum (#51).
+  Readings and the selector agree; existing entity IDs are preserved. The
+  owner confirmed all four selections in HA and on the inverter display, so this
+  selector is available in Auto. This does not validate grid-export/CT operation.
+  Device rejections are still reported, and updating sends no setting changes.
+
+- Capture guidance explains how Read-only mode blocks the temporary collector
+  redirect and that Auto is sufficient (#49). It also explains that Refresh
+  updates the capture dialog without extending the timer (#43).
+
+- Proxy capture and active device learning now wait for an in-flight poll
+  before preparing the collector connection. New polls cannot interrupt the
+  preparation or its rollback; unloading waits for startup cleanup before
+  closing the link (#43). This fixes a reproduced overlap, not a confirmed
+  cause of every reported collector disconnect.
+
+- SRNE polling can recover battery and PV readings through five documented
+  short register groups after an explicit illegal-address rejection of the
+  combined DC block (#44). Timeouts and malformed responses do not trigger
+  this fallback. Missing groups remain unavailable instead of becoming zero.
+  The detected read-only family also retains the catalog proof required to
+  recreate its sensors after a Home Assistant reload.
+
+- MUST current labels now match the documented nodes: **Inverter Current**,
+  **Grid Current**, and **Load Current** (#46). Existing entity IDs and values
+  are unchanged; current is not estimated from power and voltage.
+
+- MUST PV3300 reports whole load percent and normalizes battery/grid directions
+  for HA energy flows (#46): positive battery power/current means charging;
+  positive grid power means importing. These corrections are model-scoped;
+  other MUST maps and native inverter-converter power are unchanged. Existing
+  confirmed PV3300 entries leave the older generic cached map automatically,
+  without deleting entities or rewriting historical energy statistics.
+
+- Generic Modbus catalog detection retains the evidence identifiers needed to
+  restore a read-only device profile after a Home Assistant reload.
 
 - Framed collector replies must match both the request's transaction ID and
   function code. An unrelated heartbeat or response can no longer complete a

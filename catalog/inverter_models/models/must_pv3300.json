@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "model_key": "must_pv3300",
+  "manufacturer": "MUST-compatible",
+  "model": "PV3300",
+  "aliases": [
+    "MUST PV3300",
+    "DGK DGKINV02-24 6kW"
+  ],
+  "lifecycle": "experimental",
+  "variants": [
+    {
+      "variant_key": "pv3300",
+      "label": "PV3300 field-confirmed telemetry interpretation",
+      "device_descriptor_keys": [
+        "must_pv3300"
+      ],
+      "known_firmware": []
+    }
+  ],
+  "validation": {
+    "hardware": "captured",
+    "telemetry": "partial",
+    "controls": "partial"
+  },
+  "coverage": {
+    "runtime_control_surface": "available",
+    "smartess_control_surface": "cloud_catalog",
+    "vendor_register_map": "partial",
+    "notes": [
+      "Four controls are tested for PV3300 only following issue #46 owner-reported local writes and HA readback: Grid Max Charge Current, Max Combined Charge Current, Charge Source Priority and Energy Use Mode. The other 23 document-backed controls remain untested and Full Control only.",
+      "Control qualification covers the reported firmware writes/readback, not independent physical-behavior validation or every documented range/enum value; other MUST models are not promoted.",
+      "Whole-percent load and battery/grid direction normalization are qualified by the PV3300 local marker, not by the retail label or live power magnitude."
+    ]
+  },
+  "known_limitations": [
+    "SOC and separate BMS voltage/current/temperature require the optional BMS block confirmed in issue #46. Missing or invalid data stays unavailable; BMS current keeps the native signed convention.",
+    "Learned maps tied to the older generic MUST schema are not automatically rebased; existing compatibility checks remain in force.",
+    "Output Current and Inverter Load Current can remain zero on the reported unit; their meaning is still under investigation.",
+    "Other PV/PH/EP models retain the common register interpretation because published MUST documents disagree on load-percentage units.",
+    "Previously accumulated energy/history is not rewritten; daily estimated totals reset with the first valid sample of the next local day."
+  ],
+  "knowledge_summary": "PV3300 inherits the common MUST map with four owner-write/readback-confirmed controls and a scoped telemetry override: whole-percent load, charge-positive battery current/power and import-positive grid power. Native AC converter power retains its vendor sign; the other 23 controls remain untested.",
+  "source_keys": [
+    "private_must_pv_ph18_modbus_map",
+    "github_issue_46_pv3300",
+    "github_issue_46_pv3300_bms",
+    "github_issue_46_pv3300_controls"
+  ]
+}

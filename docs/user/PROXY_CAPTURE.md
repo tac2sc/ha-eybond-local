@@ -34,6 +34,13 @@ during a critical monitoring or control window.
 
 If you are not sure, stop and create a Support Archive instead.
 
+**Read-only control mode also blocks collector changes**, including the temporary
+server-address change needed for capture. If a developer has asked for a capture,
+open **Configure → Polling and inverter detection** and select **Control mode →
+Auto**. Leave the connection profile at **Cloud + Home Assistant**. Full Control
+is not needed, and changing this setting does not itself send inverter commands.
+After capture and confirmed restoration you can return to Read-only.
+
 ## How to start
 
 1. **Settings → Devices & Services**
@@ -44,6 +51,12 @@ If you are not sure, stop and create a Support Archive instead.
 6. Choose the duration and start the capture.
 7. Reproduce the problem, or follow the developer's instructions.
 8. Stop the capture, or wait for the timer to finish.
+
+Startup waits for any current inverter poll to finish, then pauses new polls
+while it checks and redirects the connection. A failed start keeps polling
+paused through its immediate restoration attempt. This prevents the integration
+from sending a normal poll in the middle of preparation; it does not guarantee
+that an unstable collector will stay connected.
 
 If the last check found the collector disconnected but its route is known,
 the screen offers **Reconnect and start capture**. This first reconnects to
@@ -75,6 +88,12 @@ available until Home Assistant finishes restoring the collector route.
 Proxy capture is temporary.
 
 When the timer ends, Home Assistant stops the capture automatically and tries to restore the collector’s normal connection path.
+
+The open dialog does not refresh automatically. Choose **Refresh** or reopen it
+to see the final status and saved result. Refresh reads the capture's current
+status without requesting another inverter poll. It does not restart or extend
+the timer; **Reset proxy timer** is a separate action. Check that the vendor app
+resumes updating after restoration.
 
 You can:
 

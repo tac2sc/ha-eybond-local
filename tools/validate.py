@@ -20,6 +20,27 @@ HA_TEST_ROOT = REPO_ROOT / "tests_ha"
 
 _FAMILY_TESTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "custom_components/eybond_local/protocol_catalogs/register_schemas/eybond_09c1/",
+        ("test_eybond_09c1.py", "test_effective_metadata_snapshot.py"),
+    ),
+    (
+        "custom_components/eybond_local/protocol_catalogs/register_schemas/sumry_ges_7530/",
+        ("test_sumry_ges_7530.py", "test_register_schema_loader.py", "test_model_catalog.py"),
+    ),
+    (
+        "custom_components/eybond_local/protocol_catalogs/register_schemas/hopewind_0237/",
+        ("test_hopewind_driver.py", "test_modbus_catalog_driver.py"),
+    ),
+    (
+        "custom_components/eybond_local/protocol_catalogs/register_schemas/must_pv_ph18/",
+        ("test_must_driver.py", "test_must_bms.py", "test_canonical_telemetry.py", "test_derived_energy.py"),
+    ),
+    (
+        "custom_components/eybond_local/protocol_catalogs/profiles/must_pv_ph18/",
+        ("test_must_driver.py", "test_profile_loader.py", "test_write_exposure_policy.py",
+         "test_model_catalog.py", "test_runtime_inventory.py"),
+    ),
+    (
         "custom_components/eybond_local/protocol_catalogs/register_schemas/eybond_short_ascii/",
         ("test_eybond_short_ascii.py", "test_short_ascii_optional.py", "test_effective_metadata_snapshot.py"),
     ),
@@ -134,6 +155,20 @@ _FAMILY_TESTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # these entries prevent a cheap ``affected`` run from silently missing a typed
 # boundary or neutral wire contract.
 _EXACT_TESTS: dict[str, tuple[str, ...]] = {
+    "custom_components/eybond_local/protocol_catalogs/profiles/must_pv_ph18/base.json": (
+        "test_must_driver.py", "test_profile_loader.py", "test_write_exposure_policy.py",
+        "test_model_catalog.py", "test_runtime_inventory.py",
+    ),
+    "custom_components/eybond_local/onboarding/discovery_addresses.py": (
+        "test_discovery_addresses.py", "test_config_flow.py", "test_detection.py",
+    ),
+    "custom_components/eybond_local/connection/callback_identity.py": (
+        "test_callback_identity.py", "test_callback_identity_advertised_route.py",
+        "test_callback_identity_production_wire.py", "test_config_flow.py",
+    ),
+    "custom_components/eybond_local/payload/urtu09c1.py": ("test_eybond_09c1.py",),
+    "custom_components/eybond_local/drivers/eybond_09c1.py": ("test_eybond_09c1.py",),
+    "custom_components/eybond_local/drivers/eybond_09c1_pv.py": ("test_eybond_09c1.py",),
     "custom_components/eybond_local/support/masking.py": (
         "test_support_masking.py", "test_support_package.py", "test_support_bundle.py",
         "test_proxy_trace.py", "test_diagnostic_export.py",
@@ -156,16 +191,20 @@ _EXACT_TESTS: dict[str, tuple[str, ...]] = {
         "test_command_support.py", "test_short_ascii_optional.py",
     ),
     "custom_components/eybond_local/drivers/catalog_probe.py": (
-        "test_eybond_short_ascii.py", "test_catalog_probe.py",
+        "test_eybond_short_ascii.py", "test_eybond_09c1.py", "test_catalog_probe.py",
     ),
     "custom_components/eybond_local/drivers/registry.py": (
-        "test_eybond_short_ascii.py", "test_device_catalog.py", "test_config_flow.py",
+        "test_eybond_short_ascii.py", "test_eybond_09c1.py", "test_device_catalog.py", "test_config_flow.py",
     ),
     "custom_components/eybond_local/metadata/effective_metadata_snapshot.py": (
-        "test_eybond_short_ascii.py", "test_effective_metadata_snapshot.py",
+        "test_eybond_short_ascii.py", "test_eybond_09c1.py", "test_effective_metadata_snapshot.py",
         "test_effective_metadata.py", "test_coordinator_device_hierarchy.py",
     ),
     "custom_components/eybond_local/protocol_catalogs/inverter_catalog.json": (
+        "test_eybond_09c1.py",
+        "test_must_driver.py",
+        "test_hopewind_driver.py",
+        "test_modbus_catalog_driver.py",
         "test_eybond_short_ascii.py",
         "test_effective_metadata_snapshot.py",
         "test_catalog_identity.py",
@@ -266,7 +305,11 @@ _EXACT_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "custom_components/eybond_local/drivers/must.py": (
         "test_must_driver.py",
+        "test_must_bms.py",
         "test_driver_local_register_evidence.py",
+    ),
+    "custom_components/eybond_local/drivers/must_bms.py": (
+        "test_must_bms.py", "test_must_driver.py",
     ),
     "custom_components/eybond_local/drivers/srne.py": (
         "test_srne_driver.py",
@@ -274,6 +317,7 @@ _EXACT_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "custom_components/eybond_local/drivers/modbus_catalog.py": (
         "test_modbus_catalog_driver.py",
+        "test_hopewind_driver.py",
         "test_driver_local_register_evidence.py",
     ),
     "custom_components/eybond_local/drivers/smartess_local.py": (

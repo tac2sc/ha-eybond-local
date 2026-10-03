@@ -57,6 +57,66 @@ freshness claim. See the [offline inspector](../../tools/README.md#inspect-a-sho
 for capture analysis; enabling live PV still requires the admission contract
 and per-session optional-sample expiry/invalidation described above.
 
+### Qualified 09C1 baseline
+
+`eybond_09c1` is a separate FC4-only read-only driver, not a relaxed Short-ASCII
+parser. Manufacturer `09C1` / decimal devcode `2497` describes the map;
+the captured EyeBond routing uses **devcode 1, collector address 255**. Cloud
+protocol identity must not be mistaken for the routing devcode.
+
+Commands are plain `Q1`, `QF`, `PV?`, `F`, `G?` plus CR, without a binary address
+or PI30/URTU1920 checksum; runtime/support reads also allow optional `PV1`/`PV2`.
+Detection still requires only the original four parsed response shapes
+(`Q1` 47, `QF` 6, `PV?` 19, `F` 22 bytes). The schema and family descriptor own
+the public surface; no collector PN or rating becomes a retail identity.
+
+Q1 owns input frequency; QF owns output frequency. Runtime returns FULL snapshots:
+Q1 failure propagates, while missing QF/PV?/F removes only its measurements.
+G? text, the ambiguous PV fault glyph, the no-output status bit and the custom
+PV energy encoding remain raw support evidence. Rated power is never live power;
+the family has no controls even in Full Control. Synthetic tests cover distinct
+frequency ownership, scaling, malformed/foreign replies and the real HA lifecycle.
+
+The [issue #50 follow-up](https://github.com/groove-max/ha-eybond-local/issues/50#issuecomment-5945338871)
+provides separate PV1/PV2 command captures and two connected local-runtime
+snapshots. They qualify the same strict 19-byte PV shape and tenths scaling,
+not a capability flag or a physical-port identity. The snapshots/commands are
+non-simultaneous; this unit's physical labels are crossed relative to commands.
+Neither the supplied LW/GS V1.01 document nor the existing family identity
+distinguishes PV1/PV2 support across all variants. Replies have no channel echo:
+even two valid replies cannot prove distinct hardware channels or detect a
+firmware alias to PV?. Equal/zero readings are valid, not an unsupported test.
+
+The extension therefore uses per-runtime empirical qualification: both commands
+must first have valid unexpired samples before either extension channel is
+published. Once qualified, failure/expiry removes only that channel. There is
+no PV?-to-channel fallback and no inferred total. `QF`/`PV?`/`F` retain their
+every-cycle, no-cache semantics. With runtime state, the extension makes at most
+one additional four-second-bounded request per successful Q1 cycle; each channel
+has a 30-second minimum retry interval. Four consecutive invalid replies/timeouts
+use the existing namespaced unsupported cache (`09c1:PV1`, `09c1:PV2`) and explicit
+re-check action. Connection loss does not count as unsupported. Stateless
+callers use only the legacy read plan, since they cannot retain the retry budget.
+
+Channel values have a TTL fixed at acquisition, `max(60, 3 * poll_interval)`
+seconds (60 without a poll interval). FULL snapshots omit failed/expired samples;
+`urtu09c1_pv_status` distinguishes `ok` from `cached`, with per-channel age
+diagnostics. Cancellation, mandatory failure, observed link loss, clock rollback,
+transport/inverter replacement and runtime-state reset clear samples and pair
+qualification. These are runtime-scoped samples, not proof of socket continuity;
+the payload transport contract has no session-generation identity. Samples are
+never re-dated when reused and samples/qualification are never persisted.
+Explicit support capture reads both
+new commands even when the runtime negative cache skips them and retains raw
+malformed/NAK replies for evidence. PV energy/fault semantics and all writes
+remain unqualified.
+
+The public manufacturer's map is available as
+[09C1 protocol 2497](https://api.valueclouds.com/ppe/api/auth/web/downloadAgreement?devcode=2497).
+The qualified XML SHA256 is
+`3097e35a53b4f029549b8925a27d3069470b286bb5725d9f5a046aec702abbcd`.
+Customer captures remain private; tests use independent synthetic data.
+
 ### Qualified short-ASCII baseline
 
 `eybond_short_ascii` is a separate read-only FC4 payload driver. It does not call
@@ -264,6 +324,23 @@ The Python driver should remain the place for:
 - raw transport and protocol decoding
 - derived procedural runtime logic
 - actual write-command encoding
+
+### Bounded support-only register checks
+
+When a document gives setting addresses but their readback behavior is not yet
+confirmed, do not turn them into controls or poll them continuously. A register
+schema can instead declare an optional `support_read_plan` with `source`,
+`purpose`, `timeout_seconds`, and `blocks` (each with `key`, `start`, `count`).
+The generic Modbus catalog driver executes it only while creating a Support
+Archive. See `hopewind_0237/base.json` for a concrete example.
+
+This plan supports FC03 only, at most eight blocks, sixteen words per block,
+sixty-four words total and fifteen seconds for the whole plan. An explicit
+illegal-address reply permits the next declared block; other errors stop the
+extra reads, and cancellation propagates. There is no recursive address search.
+The result stays in `support_read_diagnostics`, separate from runtime values
+and the ordinary replay fixture. An inherited plan can be disabled with `null`.
+Successful reads prove readability, not write semantics or tested controls.
 
 ### Large register-mapped control surfaces
 

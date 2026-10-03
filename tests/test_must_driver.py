@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import AsyncMock, patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,16 @@ from custom_components.eybond_local.drivers.read_result import (  # noqa: E402
 )
 from custom_components.eybond_local.fixtures.transport import FixtureTransport  # noqa: E402
 from custom_components.eybond_local.models import ProbeTarget  # noqa: E402
+from custom_components.eybond_local.metadata.register_schema_loader import load_register_schema
+from custom_components.eybond_local.metadata.profile_loader import load_driver_profile
+from custom_components.eybond_local.payload.modbus import ModbusError
+from custom_components.eybond_local.schema import capability_write_exposure_allowed
+
+
+_PV3300_TESTED_KEYS = {
+    "grid_max_charge_current", "max_combined_charge_current",
+    "charge_source_priority", "energy_use_mode",
+}
 
 
 def _full_values(result: DriverReadResult) -> dict[str, object]:
@@ -67,6 +80,138 @@ def _must_registers() -> dict[int, int]:
 
 
 class MustPvPh18DriverTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pv3300_identity_selects_override_without_changing_other_must_models(self) -> None:
+        for prefix, suffix, schema, percent in (
+            ("PV", 3300, "pv3300", 14),
+            ("PV", 18, "base", 0.14),
+            ("PV", 1800, "base", 0.14),
+            ("PH", 3300, "base", 0.14),
+            ("EP", 3300, "base", 0.14),
+            ("PV", 3500, "base", 0.14),
+            ("PV", 3301, "base", 0.14),
+        ):
+            with self.subTest(prefix=prefix, suffix=suffix):
+                driver = MustPvPh18Driver()
+                target = ProbeTarget(1, 255, 4)
+                transport = FixtureTransport(registers=_must_registers() | {
+                    20000: int.from_bytes(prefix.encode(), "big"), 20001: suffix, 25216: 14,
+                }, command_responses=None, probe_target=target)
+                inverter = await driver.async_probe(transport, target)
+                self.assertEqual(inverter.register_schema_name, f"must_pv_ph18/{schema}.json")
+                self.assertEqual(inverter.profile_name, f"must_pv_ph18/{schema}.json")
+                self.assertEqual(inverter.capabilities, load_driver_profile(inverter.profile_name).capabilities)
+                values = _full_values(await driver.async_read_values(transport, inverter))
+                self.assertEqual(values["load_percent"], percent)
+                self.assertEqual({c.key for c in inverter.capabilities if c.tested},
+                                 _PV3300_TESTED_KEYS if schema == "pv3300" else set())
+                self.assertTrue(all(not c.tested for c in driver.write_capabilities))
+
+    def test_pv3300_only_changes_four_qualifications_and_keeps_write_gates(self) -> None:
+        base = load_driver_profile("must_pv_ph18/base.json")
+        pv3300 = load_driver_profile("must_pv_ph18/pv3300.json")
+        self.assertEqual(len(pv3300.capabilities), 27)
+        self.assertEqual(pv3300.groups, base.groups)
+        self.assertEqual(pv3300.presets, base.presets)
+        self.assertEqual({c.key for c in pv3300.capabilities if c.tested}, _PV3300_TESTED_KEYS)
+        for capability in pv3300.capabilities:
+            common = base.get_capability(capability.key)
+            if capability.key in _PV3300_TESTED_KEYS:
+                self.assertEqual(capability.provenance, "verified")
+                self.assertIn("PV3300 only", capability.support_notes)
+                self.assertIn("issuecomment-5939601570", capability.support_notes)
+                self.assertEqual(replace(capability, tested=common.tested,
+                                         provenance=common.provenance,
+                                         support_notes=common.support_notes), common)
+            else:
+                self.assertEqual(capability, common)
+        for profile in (base, pv3300):
+            for capability in profile.capabilities:
+                for mode in ("read_only", "auto", "full"):
+                    for confidence in ("none", "low", "medium", "high"):
+                        with self.subTest(profile=profile.key, key=capability.key,
+                                          mode=mode, confidence=confidence):
+                            self.assertEqual(capability_write_exposure_allowed(
+                                capability, control_mode=mode, detection_confidence=confidence,
+                                profile_name=profile.source_name, profile_source_scope="builtin",
+                                schema_source_scope="builtin",
+                            ), mode == "full" or (mode == "auto" and confidence == "high" and capability.tested))
+
+    async def test_pv3300_confirmed_sequences_use_fc06_and_round_trip_native_values(self) -> None:
+        class RecordingTransport(FixtureTransport):
+            async def async_send_payload(self, payload, *, route):
+                if payload[1] != 3:
+                    writes.append((payload[1], int.from_bytes(payload[2:4], "big"),
+                                   int.from_bytes(payload[4:6], "big")))
+                return await super().async_send_payload(payload, route=route)
+
+        driver = MustPvPh18Driver()
+        target = ProbeTarget(1, 255, 4)
+        writes = []
+        registers = {reg: 0 for start, count in _support_capture_ranges("must_pv_ph18/base.json")
+                     for reg in range(start, start + count)} | _must_registers() | {20001: 3300}
+        transport = RecordingTransport(registers=registers, command_responses=None, probe_target=target)
+        inverter = await driver.async_probe(transport, target)
+        sequences = (
+            ("grid_max_charge_current", 20125, ((30, 300), (25, 250), (30, 300))),
+            ("max_combined_charge_current", 20132, ((80, 800), (70, 700), (80, 800))),
+            ("charge_source_priority", 20143,
+             (("Solar and Utility", 2), ("Solar First", 0), ("Solar and Utility", 2))),
+            ("energy_use_mode", 20109,
+             (("UTI (Utility First)", 3), ("SOL (Solar First)", 4), ("UTI (Utility First)", 3))),
+        )
+        for key, register, values in sequences:
+            for native, raw in values:
+                with self.subTest(key=key, native=native):
+                    writes.clear()
+                    self.assertEqual(await driver.async_write_capability(transport, inverter, key, native), native)
+                    self.assertEqual(writes, [(6, register, raw)])
+                    self.assertEqual(_full_values(await driver.async_read_values(transport, inverter))[key], native)
+
+    async def test_pv3300_charge_discharge_grid_and_flow_directions(self) -> None:
+        from custom_components.eybond_local.canonical_telemetry import project_canonical_telemetry
+        from custom_components.eybond_local.telemetry import TypedTelemetryFrame, fold_driver_telemetry
+
+        # Synthetic two-state replay of #46. AC converter power keeps its native
+        # sign; battery/grid powers use the integration's charge/import convention.
+        for current, battery, grid, load, voltage, converter in (
+            (16, 844, 0, 750, 0, 844),
+            (-30, -1613, -1753, 0, 2050, -1559),
+            (0, 0, 0, 0, 0, 0),
+            (0, 0, 500, 0, 2300, 500),
+        ):
+            with self.subTest(battery=battery, grid=grid):
+                driver = MustPvPh18Driver()
+                target = ProbeTarget(1, 255, 4)
+                registers = _must_registers() | {
+                    20001: 3300, 15208: 0, 25207: voltage, 25213: converter & 0xFFFF,
+                    25214: grid & 0xFFFF, 25215: load, 25216: 14,
+                    25273: battery & 0xFFFF, 25274: current & 0xFFFF,
+                }
+                transport = FixtureTransport(registers=registers, command_responses=None, probe_target=target)
+                inverter = await driver.async_probe(transport, target)
+                values = _full_values(await driver.async_read_values(transport, inverter))
+                self.assertEqual(values["battery_current"], -current)
+                self.assertEqual(values["battery_power"], -battery)
+                self.assertEqual(values["grid_power"], -grid)
+                self.assertEqual(values["inverter_power"], converter)
+                self.assertEqual(values["load_percent"], 14)
+                frame = project_canonical_telemetry(fold_driver_telemetry(
+                    TypedTelemetryFrame.empty(), driver_key=driver.key, values=values, replace=True,
+                )).values()
+                self.assertEqual(frame["battery_to_home_power"], load if battery > 0 else 0)
+                self.assertEqual(frame["grid_to_battery_power"], -battery if battery < 0 else 0)
+
+    async def test_missing_pv3300_battery_block_remains_missing(self) -> None:
+        driver = MustPvPh18Driver()
+        target = ProbeTarget(1, 255, 4)
+        registers = _must_registers() | {20001: 3300}
+        del registers[25273]
+        transport = FixtureTransport(registers=registers, command_responses=None, probe_target=target)
+        inverter = await driver.async_probe(transport, target)
+        values = _full_values(await driver.async_read_values(transport, inverter))
+        self.assertNotIn("battery_power", values)
+        self.assertNotIn("battery_current", values)
+
     async def test_converter_power_and_load_are_distinct_signed_words(self) -> None:
         from custom_components.eybond_local.canonical_telemetry import project_canonical_telemetry
         from custom_components.eybond_local.telemetry import TypedTelemetryFrame, fold_driver_telemetry
@@ -293,13 +438,13 @@ class MustPvPh18DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 45.0)
         self.assertEqual(transport._registers[20125], 450)
 
-    async def test_cloud_confirmed_controls_are_tested_and_exposed_in_auto(self) -> None:
+    async def test_cloud_catalog_controls_require_explicit_full_control(self) -> None:
         from custom_components.eybond_local.control_policy import can_expose_capability
-        from custom_components.eybond_local.const import CONTROL_MODE_AUTO
+        from custom_components.eybond_local.const import CONTROL_MODE_AUTO, CONTROL_MODE_FULL, CONTROL_MODE_READ_ONLY
 
-        # These map to SmartESS cloud device_settings fields, so they ship
-        # tested and are exposed in the default (auto) control mode.
-        expected_tested = {
+        # A cloud catalog proves a setting exists, not that our local write
+        # function/range/enum works on every inheriting MUST firmware.
+        cloud_catalog_keys = {
             "offgrid_output_enable",
             "power_save_mode",
             "charge_source_priority",
@@ -323,11 +468,12 @@ class MustPvPh18DriverTests(unittest.IsolatedAsyncioTestCase):
         }
         driver = MustPvPh18Driver()
         by_key = {c.key: c for c in driver.write_capabilities}
-        self.assertTrue(expected_tested.issubset(by_key))
-        for key in expected_tested:
+        self.assertEqual(len(by_key), 27)
+        self.assertTrue(cloud_catalog_keys.issubset(by_key))
+        for key in cloud_catalog_keys:
             capability = by_key[key]
-            self.assertTrue(capability.tested, key)
-            self.assertTrue(
+            self.assertFalse(capability.tested, key)
+            self.assertFalse(
                 can_expose_capability(
                     capability,
                     control_mode=CONTROL_MODE_AUTO,
@@ -335,6 +481,8 @@ class MustPvPh18DriverTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 key,
             )
+            self.assertFalse(can_expose_capability(capability, control_mode=CONTROL_MODE_READ_ONLY), key)
+            self.assertTrue(can_expose_capability(capability, control_mode=CONTROL_MODE_FULL), key)
 
     async def test_datasheet_only_controls_stay_untested_and_full_control_only(self) -> None:
         from custom_components.eybond_local.control_policy import can_expose_capability
@@ -400,6 +548,152 @@ class MustPvPh18DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn((20101, 32), ranges)
         self.assertIn((20213, 2), ranges)
         self.assertIn((25201, 74), ranges)
+
+    def test_current_labels_match_documented_nodes_without_rekeying_entities(self):
+        for name in ("base", "pv3300"):
+            schema = load_register_schema(f"must_pv_ph18/{name}.json")
+            for key, label, address in (
+                ("output_current", "Inverter Current", 25210),
+                ("ac_output_current", "Grid Current", 25211),
+                ("inverter_load_current", "Load Current", 25212),
+            ):
+                self.assertEqual(schema.measurement_description(key).name, label)
+                spec = next(s for specs in schema.spec_sets.values() for s in specs if s.key == key)
+                self.assertEqual(spec.register, address)
+                self.assertEqual(spec.divisor, 10)
+
+    async def test_pv3300_zero_current_comparison_is_support_only(self):
+        for suffix, bulk, missing, expected in (
+            (3300, 0, False, True), (3300, 12, False, False),
+            (3300, 0, True, False), (18, 0, False, False),
+        ):
+            with self.subTest(suffix=suffix, bulk=bulk, missing=missing):
+                driver = MustPvPh18Driver()
+                target = ProbeTarget(1, 255, 4)
+                link = FixtureTransport(registers=_must_registers() | {20001: suffix},
+                                        command_responses=None, probe_target=target)
+                inverter = await driver.async_probe(link, target)
+
+                async def read(start, count):
+                    if (start, count) == (25201, 74):
+                        if missing:
+                            raise ModbusError("exception_code:2")
+                        return [bulk if address in (25210, 25211, 25212) else 0
+                                for address in range(start, start + count)]
+                    if count == 1 and start in (25210, 25211, 25212):
+                        return [13]
+                    return [0] * count
+
+                session = type("Session", (), {"read_holding": AsyncMock(side_effect=read)})()
+                with patch.object(driver, "_session", return_value=session):
+                    evidence = await driver.async_capture_support_evidence(link, inverter)
+                self.assertEqual("current_read_diagnostics" in evidence, expected)
+                if expected:
+                    extra = evidence["current_read_diagnostics"]
+                    self.assertEqual(extra["status"], "completed")
+                    self.assertEqual([block["words"] for block in extra["captured_ranges"]], [[13]] * 3)
+                    original = next(b for b in evidence["fixture_ranges"] if b["start"] == 25201)
+                    self.assertEqual(original["values"][9:12], [0, 0, 0])
+                singles = [call for call in session.read_holding.await_args_list if call.args[1] == 1]
+                self.assertEqual(len(singles), 3 if expected else 0)
+
+    async def test_pv3300_bms_evidence_preserves_raw_invalid_values_and_model_scope(self):
+        for suffix in (3300, 1800):
+            driver = MustPvPh18Driver()
+            target = ProbeTarget(1, 255, 4)
+            link = FixtureTransport(registers=_must_registers() | {20001: suffix},
+                                    command_responses=None, probe_target=target)
+            inverter = await driver.async_probe(link, target)
+            # Keep zero, plausible and invalid SOC words as evidence, not as
+            # claimed sensor values. No guesses from voltage or Ah capacity.
+            for words in ([527, 0xFFF6, 25, 0, 72], [0] * 5, [527, 0, 25, 0, 65535]):
+                async def read(start, count, **kwargs):
+                    if (start, count) == (109, 5):
+                        return words
+                    return [12] * count
+                session = type("Session", (), {"read_holding": AsyncMock(side_effect=read),
+                                               "read_registers": AsyncMock(side_effect=read)})()
+                with patch.object(driver, "_session", return_value=session):
+                    values = _full_values(await driver.async_read_values(link, inverter))
+                    self.assertEqual(session.read_holding.await_count, int(suffix == 3300))
+                    self.assertFalse(any(call.args[0] == 109 for call in session.read_registers.await_args_list))
+                    evidence = await driver.async_capture_support_evidence(link, inverter)
+                self.assertEqual(values.get("battery_soc"), 72 if suffix == 3300 and words[-1] == 72 else None)
+                self.assertNotIn("battery_percent", values)
+                self.assertEqual("bms_read_diagnostics" in evidence, suffix == 3300)
+                if suffix == 3300:
+                    extra = evidence["bms_read_diagnostics"]
+                    self.assertEqual(extra["status"], "completed")
+                    self.assertEqual(extra["captured_ranges"], [{"start": 109, "count": 5, "words": words}])
+                    self.assertNotIn(109, [b["start"] for b in evidence["fixture_ranges"]])
+
+    async def test_bms_unsupported_or_timed_out_does_not_break_support_export(self):
+        driver = MustPvPh18Driver()
+        link = FixtureTransport(registers=_must_registers() | {20001: 3300},
+                                command_responses=None, probe_target=ProbeTarget(1, 255, 4))
+        inverter = await driver.async_probe(link, ProbeTarget(1, 255, 4))
+        for kind in ("unsupported", "disconnect", "timeout"):
+            async def read(start, count):
+                if start == 109:
+                    if kind == "timeout":
+                        await asyncio.Event().wait()
+                    if kind == "unsupported":
+                        raise ModbusError("exception_code:2")
+                    raise ConnectionError("disconnected")
+                return [12] * count
+            session = type("Session", (), {"read_holding": AsyncMock(side_effect=read)})()
+            with patch.object(driver, "_session", return_value=session), patch(
+                "custom_components.eybond_local.drivers.must._BMS_DIAGNOSTIC_TIMEOUT_SECONDS", 0.02
+            ):
+                evidence = await asyncio.wait_for(driver.async_capture_support_evidence(link, inverter), 1)
+            extra = evidence["bms_read_diagnostics"]
+            self.assertTrue(evidence["captured_ranges"])
+            self.assertEqual(len(extra["range_failures"]), 1)
+            self.assertEqual(extra["captured_ranges"], [])
+            self.assertEqual(extra["status"], {"unsupported": "completed", "disconnect": "stopped_on_error", "timeout": "budget_exhausted"}[kind])
+            self.assertEqual(session.read_holding.await_args_list[-1].args, (109, 5))
+
+    async def test_bms_probe_does_not_continue_after_current_transport_error(self):
+        driver = MustPvPh18Driver()
+        link = FixtureTransport(registers=_must_registers() | {20001: 3300},
+                                command_responses=None, probe_target=ProbeTarget(1, 255, 4))
+        inverter = await driver.async_probe(link, ProbeTarget(1, 255, 4))
+        async def read(start, count):
+            if count == 1:
+                raise ConnectionError("disconnected")
+            return [0] * count
+        session = type("Session", (), {"read_holding": AsyncMock(side_effect=read)})()
+        with patch.object(driver, "_session", return_value=session):
+            evidence = await driver.async_capture_support_evidence(link, inverter)
+        self.assertEqual(evidence["bms_read_diagnostics"]["status"], "skipped_after_current_read_failure")
+        self.assertNotIn(unittest.mock.call(109, 5), session.read_holding.await_args_list)
+
+    async def test_cancelled_bms_capture_does_not_swallow_cancellation(self):
+        driver = MustPvPh18Driver()
+        target = ProbeTarget(1, 255, 4)
+        link = FixtureTransport(registers=_must_registers() | {20001: 3300},
+                                command_responses=None, probe_target=target)
+        inverter = await driver.async_probe(link, target)
+        started = asyncio.Event()
+        async def read(start, count):
+            if start == 109:
+                started.set()
+                await asyncio.Event().wait()
+            return [12] * count
+        session = type("Session", (), {"read_holding": AsyncMock(side_effect=read)})()
+        with patch.object(driver, "_session", return_value=session):
+            task = asyncio.create_task(driver.async_capture_support_evidence(link, inverter))
+            try:
+                await asyncio.wait_for(started.wait(), 1)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            finally:
+                if not task.done():
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+        self.assertEqual(session.read_holding.await_args_list[-1].args, (109, 5))
 
 
 if __name__ == "__main__":

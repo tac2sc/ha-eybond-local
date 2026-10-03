@@ -1,4 +1,4 @@
-"""MUST PV/PH18 Modbus RTU read-only driver."""
+"""MUST PV/PH18 telemetry and model-qualified local controls."""
 
 from __future__ import annotations
 
@@ -6,14 +6,18 @@ from ..poll_policy import PollPolicy
 
 
 from typing import Any
+import time
 
 from ..metadata.compiled_detection_catalog import load_compiled_detection_catalog
 from ..metadata.device_catalog_loader import resolve_support_capture_policy
+from ..metadata.detection_decision_tree import evaluate_detection_decision_tree_static
+from ..metadata.profile_loader import load_driver_profile
 from ..metadata.register_schema_loader import load_register_schema
 from ..models import DetectedInverter, ProbeTarget
 from ..payload.modbus import ModbusError, ModbusSession
 from ..payload.register_decode import decode_ascii_word, read_spec_set_values
 from .base import InverterDriver
+from .support_diagnostics import capture_support_reads
 from .local_register_evidence import (
     LocalRegisterReadPlan,
     LocalRegisterSnapshot,
@@ -21,6 +25,7 @@ from .local_register_evidence import (
 )
 from .read_result import DriverReadMode, DriverReadResult
 from .modbus_write_error import ModbusWriteErrorMixin
+from .must_bms import async_read_bms
 from .capability_codec import (
     decode_capability_value,
     encode_capability_words,
@@ -29,6 +34,7 @@ from .capability_codec import (
 
 
 _MODEL_PREFIXES = ("PV", "PH", "EP")
+_BMS_DIAGNOSTIC_TIMEOUT_SECONDS = 3.0
 
 
 class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
@@ -87,22 +93,37 @@ class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
         if not model_name.startswith(_MODEL_PREFIXES):
             return None
 
-        surface = load_compiled_detection_catalog().surfaces["must_pv_ph18_full"]
+        catalog = load_compiled_detection_catalog()
+        evidence = {
+            "identity.model_number": model_name,
+            "protocol.protocol_id": "MUST_PV_PH18",
+        }
+        evaluation = evaluate_detection_decision_tree_static(catalog.decision_trees[self.key], evidence)
+        resolution = catalog.resolution_for_candidates(
+            protocol_key=self.key,
+            candidate_keys=evaluation.candidate_keys if evaluation.status == "resolved" else (),
+            evidence=evidence,
+        )
+        # Unrecognized PV/PH/EP models keep the common map. A documented model
+        # override must be selected from identity, never guessed from live watts.
+        surface = catalog.surfaces[resolution.surface_key or "must_pv_ph18_full"]
         details = {
             "model_number": model_name,
             "protocol_id": "MUST_PV_PH18",
             "catalog_detection": {
-                "resolution": "exact",
+                "resolution": resolution.resolution if resolution.surface_key else "family",
                 "surface_key": surface.key,
-                "evidence": {
-                    "identity.model_number": model_name,
-                    "protocol.protocol_id": "MUST_PV_PH18",
-                },
+                "evidence": evidence,
+                "candidate_keys": list(resolution.candidate_keys),
+                "catalog_version": resolution.catalog_version,
+                "descriptor_revisions": list(resolution.descriptor_revisions),
+                "evidence_fingerprint": resolution.evidence_fingerprint,
             },
         }
         # Entity setup reads capabilities from the DetectedInverter; carry
-        # the profile's untested controls with the detection result.
-        profile = self.profile_metadata if surface.profile_name else None
+        # the identity-selected profile, not the common MUST profile. Only
+        # PV3300 has the four owner-confirmed controls from issue #46.
+        profile = load_driver_profile(surface.profile_name) if surface.profile_name else None
         return DetectedInverter(
             driver_key=self.key,
             protocol_family="must_pv_ph18",
@@ -127,6 +148,8 @@ class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
         poll_interval: float | None = None,
         now_monotonic: float | None = None,
     ) -> DriverReadResult:
+        started = time.monotonic()
+        now = started if now_monotonic is None else float(now_monotonic)
         schema = load_register_schema(
             inverter.register_schema_name or self.register_schema_name
         )
@@ -143,7 +166,15 @@ class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
             ) / 10
         if "model_prefix" in values and "model_suffix" in values:
             values["model_number"] = f"{values['model_prefix']}{values['model_suffix']}"
-        return DriverReadResult(values=values, mode=DriverReadMode.FULL)
+        diagnostics = {}
+        if schema.source_name == "must_pv_ph18/pv3300.json":
+            bms_values, diagnostics = await async_read_bms(
+                session, transport, inverter, schema,
+                runtime_state if runtime_state is not None else {},
+                lambda: now + max(0, time.monotonic() - started),
+            )
+            values.update(bms_values)
+        return DriverReadResult(values=values, mode=DriverReadMode.FULL, diagnostics=diagnostics)
 
     async def async_write_capability(
         self,
@@ -202,7 +233,7 @@ class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
                     "words": list(values),
                 }
             )
-        return {
+        evidence = {
             "capture_kind": "must_pv_ph18_modbus_register_dump",
             "driver_key": self.key,
             "model_name": inverter.model_name,
@@ -223,6 +254,36 @@ class MustPvPh18Driver(ModbusWriteErrorMixin, InverterDriver):
                 for item in captured_ranges
             ],
         }
+        if inverter.register_schema_name == "must_pv_ph18/pv3300.json":
+            raw = {
+                block["start"] + offset: word
+                for block in captured_ranges
+                for offset, word in enumerate(block["words"])
+            }
+            if all(raw.get(address) == 0 for address in (25210, 25211, 25212)):
+                evidence["current_read_diagnostics"] = await capture_support_reads(
+                    session,
+                    ((25210, 1, "inverter_current"), (25211, 1, "grid_current"),
+                     (25212, 1, "load_current")),
+                    timeout_seconds=6.0,
+                    source="PH/PV Modbus 1.4.3 and protocol 1916 current registers",
+                    purpose="support_only_zero_bulk_current_single_read_comparison",
+                )
+            # The vendor's 6422/1916 map describes a separate optional BMS
+            # window (voltage/current/temperature/reserved/SOC). Keep the raw
+            # diagnostic read independently bounded, even during runtime backoff.
+            current_status = evidence.get("current_read_diagnostics", {}).get("status", "completed")
+            if current_status == "completed":
+                evidence["bms_read_diagnostics"] = await capture_support_reads(
+                    session,
+                    ((109, 5, "bms_soc_candidate"),),
+                    timeout_seconds=_BMS_DIAGNOSTIC_TIMEOUT_SECONDS,
+                    source="Manufacturer protocol 6422 (1916), FC03 BMS registers 109-113",
+                    purpose="support_only_optional_bms_soc_availability",
+                )
+            else:
+                evidence["bms_read_diagnostics"] = {"status": "skipped_after_current_read_failure"}
+        return evidence
 
     def local_register_read_plans(
         self, inverter: DetectedInverter
@@ -267,7 +328,9 @@ def _must_default_schema_name() -> str:
 
 def _support_capture_ranges(schema_name: str) -> tuple[tuple[int, int], ...]:
     schema = load_register_schema(schema_name)
-    planned = [(block.start, block.count) for block in schema.blocks]
+    # BMS evidence has its own deadline and failure record below; never merge
+    # it into the mandatory/core capture or read it twice during one export.
+    planned = [(block.start, block.count) for block in schema.blocks if block.key != "bms"]
     planned.extend(_support_capture_policy().ranges)
     return _merge_capture_ranges(planned)
 
