@@ -20,7 +20,8 @@ class RuntimeInventoryTests(unittest.TestCase):
     def test_profile_names_are_derived_from_compiled_runtime_surfaces(self) -> None:
         names = runtime_profile_names()
 
-        self.assertEqual(len(names), 32)
+        self.assertEqual(len(names), 33)
+        self.assertIn("srne_modbus/smx_ii.json", names)
         self.assertIn("must_pv_ph18/base.json", names)
         self.assertIn("must_pv_ph18/pv3300.json", names)
         self.assertIn("modbus_catalog/hopewind_0237.json", names)
@@ -53,17 +54,23 @@ class RuntimeInventoryTests(unittest.TestCase):
         summary = inventory["summary"]
 
         self.assertEqual(summary["profiles"], len(inventory["profiles"]))
-        self.assertEqual(summary["profiles"], 32)
-        self.assertEqual(summary["capabilities"], 1209)
+        self.assertEqual(summary["profiles"], 33)
+        self.assertEqual(summary["capabilities"], 1245)
         # The separate PV3300 surface adds 27 controls: four owner-confirmed,
         # 23 untested. The common MUST surface remains wholly untested.
-        self.assertEqual(summary["validation_state_counts"], {"tested": 438, "untested": 771})
+        # SMX-II adds 36 conditional controls: two tested and 34 untested.
+        self.assertEqual(summary["validation_state_counts"], {"tested": 440, "untested": 805})
         self.assertEqual(
             summary["support_tier_counts"],
-            {"blocked": 31, "conditional": 799, "standard": 379},
+            {"blocked": 31, "conditional": 835, "standard": 379},
         )
 
         profile_by_key = {item["profile_key"]: item for item in inventory["profiles"]}
+        smx_ii = profile_by_key["srne_modbus/smx_ii.json"]
+        self.assertEqual(smx_ii["driver_key"], "srne_modbus")
+        self.assertEqual(smx_ii["capabilities"], 36)
+        self.assertEqual(smx_ii["validation_state_counts"], {"tested": 2, "untested": 34})
+        self.assertEqual(smx_ii["support_tier_counts"], {"conditional": 36})
         self.assertEqual(
             profile_by_key["must_pv_ph18/base.json"]["validation_state_counts"],
             {"untested": 27},
