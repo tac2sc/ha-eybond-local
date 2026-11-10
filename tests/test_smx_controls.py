@@ -17,6 +17,7 @@ from custom_components.eybond_local.fixtures.transport import FixtureTransport
 from custom_components.eybond_local.metadata.register_schema_loader import load_register_schema
 from custom_components.eybond_local.models import ProbeTarget
 from custom_components.eybond_local.payload.modbus import ModbusError, crc16_modbus
+from custom_components.eybond_local.runtime.hub.common import _write_readback_matches
 
 
 TARGET = ProbeTarget(devcode=1, collector_addr=255, device_addr=1)
@@ -40,6 +41,7 @@ class _WriteTraceTransport(FixtureTransport):
         registers[0x0211] = 0  # Legacy default password status.
         super().__init__(registers=registers, command_responses=None, probe_target=TARGET)
         self.requests: list[tuple[int, int, int]] = []
+        self.holding_reads: list[tuple[int, int]] = []
         self.deny_once_at: int | None = None
         self.ignore_write_at: int | None = None
         self.fail_readback_at: int | None = None
@@ -47,6 +49,7 @@ class _WriteTraceTransport(FixtureTransport):
 
     def _handle_read_holding(self, payload: bytes) -> bytes:
         address = int.from_bytes(payload[2:4], "big")
+        self.holding_reads.append((address, int.from_bytes(payload[4:6], "big")))
         if self._write_started and self.fail_readback_at == address:
             return self._exception(0x03, 0x02)
         return super()._handle_read_holding(payload)
@@ -254,7 +257,7 @@ class SmxControlsTests(unittest.IsolatedAsyncioTestCase):
             "unavailable",
         )
 
-    async def test_slow_poll_confirms_write_without_extra_register_reads(self):
+    async def test_post_write_poll_prioritizes_target_block_without_full_sweep(self):
         from custom_components.eybond_local.drivers.write_confirmation import (
             write_confirmation_diagnostics,
         )
@@ -267,25 +270,132 @@ class SmxControlsTests(unittest.IsolatedAsyncioTestCase):
             self.transport, self.inverter, "max_ac_charge_current", 60,
             runtime_state=state,
         )
+        self.transport.holding_reads.clear()
         self.transport.requests.clear()
-        await self.driver.async_read_values(
+        poll = await self.driver.async_read_values(
             self.transport, self.inverter, runtime_state=state, poll_interval=5.0
         )
         trace = write_confirmation_diagnostics(state)[
             "runtime_capability_write_confirmation"
         ]
-        self.assertEqual(trace["first_full_poll_status"], "pending")
+        self.assertEqual(trace["first_full_poll_status"], "matched")
+        self.assertEqual(poll.values["max_ac_charge_current"], 60.0)
+        self.assertIn((57860, 3), self.transport.holding_reads)
+        self.assertNotIn((57864, 11), self.transport.holding_reads)
         self.assertEqual(self.transport.requests, [])  # Polling is read-only.
+        self.assertEqual(trace["convergence"], "requested_value_observed")
 
-        for _ in range(20):
-            await self.driver.async_read_values(
+        # Once confirmed, the extra read must not persist on future polls.
+        self.transport.holding_reads.clear()
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        self.assertNotIn((57860, 3), self.transport.holding_reads)
+
+    async def test_charger_priority_first_delta_refresh_confirmed(self):
+        from custom_components.eybond_local.drivers.write_confirmation import (
+            write_confirmation_diagnostics,
+        )
+
+        state = {}
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        await self.driver.async_write_capability(
+            self.transport, self.inverter, "charger_source_priority", "PV and Utility",
+            runtime_state=state,
+        )
+        self.transport.holding_reads.clear()
+        poll = await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        self.assertEqual(poll.values["charger_source_priority"], "PV and Utility")
+        self.assertIn((57864, 11), self.transport.holding_reads)
+        self.assertEqual(
+            write_confirmation_diagnostics(state)["runtime_capability_write_confirmation"]["latest_full_poll_status"],
+            "matched",
+        )
+
+    async def test_on_off_readback_matches_bool_and_stale_opposite_does_not(self):
+        from custom_components.eybond_local.drivers.write_confirmation import (
+            write_confirmation_diagnostics,
+        )
+
+        self.transport._registers[57872] = 1
+        state = {}
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        await self.driver.async_write_capability(
+            self.transport, self.inverter, "alarm_enable", False, runtime_state=state
+        )
+        poll = await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        self.assertEqual(poll.values["alarm_enable"], "Off")
+        self.assertEqual(
+            write_confirmation_diagnostics(state)["runtime_capability_write_confirmation"]["convergence"],
+            "requested_value_observed",
+        )
+        capability = self.inverter.get_capability("alarm_enable")
+        self.assertTrue(_write_readback_matches(
+            capability, requested_value=False, written_value=False, readback_value="Off"
+        ))
+        self.assertFalse(_write_readback_matches(
+            capability, requested_value=False, written_value=False, readback_value="On"
+        ))
+        self.assertFalse(_write_readback_matches(
+            capability, requested_value=False, written_value=False, readback_value="Unknown"
+        ))
+
+    async def test_real_reversion_is_not_masked_by_immediate_confirmation(self):
+        from custom_components.eybond_local.drivers.write_confirmation import (
+            write_confirmation_diagnostics,
+        )
+
+        state = {}
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        await self.driver.async_write_capability(
+            self.transport, self.inverter, "charger_source_priority", "PV and Utility",
+            runtime_state=state,
+        )
+        self.transport._registers[57871] = 1  # Device reverted after the immediate readback.
+        poll = await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        trace = write_confirmation_diagnostics(state)["runtime_capability_write_confirmation"]
+        self.assertEqual(trace["immediate_status"], "matched")
+        self.assertEqual(trace["latest_full_poll_status"], "mismatched")
+        self.assertEqual(poll.values["charger_source_priority"], "Utility First")
+        self.assertFalse(_write_readback_matches(
+            self.inverter.get_capability("charger_source_priority"),
+            requested_value="PV and Utility", written_value="PV and Utility",
+            readback_value=poll.values["charger_source_priority"],
+        ))
+        self.assertEqual(self.transport.requests, [(6, 57871, 2)])
+
+    async def test_failed_targeted_read_retries_once_then_stops(self):
+        state = {}
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        await self.driver.async_write_capability(
+            self.transport, self.inverter, "charger_source_priority", "PV Only",
+            runtime_state=state,
+        )
+        self.transport.fail_readback_at = 57864  # Fail the config block, not the exact-register read.
+        for _ in range(2):
+            poll = await self.driver.async_read_values(
                 self.transport, self.inverter, runtime_state=state, poll_interval=5.0
             )
-        trace = write_confirmation_diagnostics(state)[
-            "runtime_capability_write_confirmation"
-        ]
-        self.assertEqual(trace["first_full_poll_status"], "matched")
-        self.assertEqual(trace["convergence"], "requested_value_observed")
+            self.assertIn("charger_source_priority", poll.removed_keys)
+        self.transport.holding_reads.clear()
+        await self.driver.async_read_values(
+            self.transport, self.inverter, runtime_state=state, poll_interval=5.0
+        )
+        self.assertNotIn((57864, 11), self.transport.holding_reads)
 
 
 if __name__ == "__main__":

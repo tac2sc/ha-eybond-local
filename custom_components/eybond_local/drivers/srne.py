@@ -61,6 +61,7 @@ _SMX_PRODUCT_INFO = "SR-2206260036-300917"
 _SMX_SURFACE_KEY = "srne_modbus_smx_ii"
 _SMX_PROFILE = "srne_modbus/smx_ii.json"
 _SMX_POLL_STATE_KEY = "srne_smx_ii_poll"
+_SMX_WRITE_READBACK_KEY = "pending_write_readback"
 _SMX_SLOW_SWEEP_TARGET_SECONDS = 600.0
 _SMX_FAST_BLOCK_KEYS = frozenset({
     "config", "controller_dc", "pv1", "charge_state", "charge_summary",
@@ -310,6 +311,7 @@ class SrneModbusDriver(ModbusWriteErrorMixin, InverterDriver):
                 f"smx_ii_write_readback_mismatch:{capability.key}:"
                 f"requested={encoded_words[0]}:observed={observed}"
             )
+        _schedule_smx_ii_write_readback(runtime_state, inverter, capability)
         return native_value
 
     async def async_capture_support_evidence(
@@ -487,6 +489,17 @@ async def _async_read_smx_ii_values(
         slow_blocks[(index + offset) % len(slow_blocks)]
         for offset in range(count)
     )
+    pending = state.get(_SMX_WRITE_READBACK_KEY)
+    if type(pending) is dict:
+        pending_block = next(
+            (block for block in slow_blocks if block.key == pending.get("block_key")),
+            None,
+        )
+        if pending_block is not None and pending_block not in selected_slow:
+            # The post-write hub refresh must observe the *written* setting,
+            # not a previous value retained by the DELTA snapshot cache.
+            # Add one targeted slow block, keeping normal polling unchanged.
+            selected_slow = (*selected_slow, pending_block)
     selected_blocks = (*fast_blocks, *selected_slow)
     values = await read_spec_set_values(
         session,
@@ -507,6 +520,15 @@ async def _async_read_smx_ii_values(
         )
     )
     removed = frozenset(spec.key for spec in selected_specs if spec.key not in values)
+    if type(pending) is dict:
+        if pending.get("value_key") in values:
+            state.pop(_SMX_WRITE_READBACK_KEY, None)
+        else:
+            remaining = pending.get("remaining", 0)
+            if type(remaining) is not int or remaining <= 1:
+                state.pop(_SMX_WRITE_READBACK_KEY, None)
+            else:
+                pending["remaining"] = remaining - 1
     state["index"] = (index + count) % len(slow_blocks)
     return DriverReadResult(
         values=values,
@@ -544,6 +566,50 @@ def _can_retry_with_default_password(capability, error: ModbusError) -> bool:
     )
 
 
+def _schedule_smx_ii_write_readback(
+    runtime_state: dict[str, Any] | None,
+    inverter: DetectedInverter,
+    capability,
+) -> None:
+    """Include the written setting's slow block in the next hub refresh.
+
+    The exact-register read already proved the immediate value.  A separate
+    normal poll must still confirm persistence, but a rotating DELTA poll can
+    otherwise serve an old cached value for several minutes.  Never widen
+    unrelated polls or issue another write.  A failed selected read gets at
+    most one more targeted attempt.
+    """
+
+    if runtime_state is None:
+        return
+    state = runtime_state.get(_SMX_POLL_STATE_KEY)
+    if type(state) is not dict:
+        return  # The next first poll is already a complete FULL read.
+    schema = load_register_schema(inverter.register_schema_name)
+    spec = next(
+        (item for item in schema.spec_set("runtime") if item.key == capability.value_key),
+        None,
+    )
+    if spec is None:
+        return  # No normal-poll readback exists for this capability.
+    block = next(
+        (
+            block for block in schema.blocks
+            if block.function == spec.function
+            and block.start <= spec.register
+            and spec.register + spec.word_count <= block.start + block.count
+        ),
+        None,
+    )
+    if block is None or block.key in _SMX_FAST_BLOCK_KEYS:
+        return
+    state[_SMX_WRITE_READBACK_KEY] = {
+        "block_key": block.key,
+        "value_key": capability.value_key,
+        "remaining": 2,
+    }
+
+
 def _observe_smx_ii_write_poll(
     runtime_state: dict[str, Any] | None,
     inverter: DetectedInverter,
@@ -565,7 +631,13 @@ def _observe_smx_ii_write_poll(
     matched = None
     if capability is not None:
         try:
-            matched = tuple(encode_capability_words(capability, values[trace.value_key])) == trace.requested_words
+            observed_value = values[trace.value_key]
+            if capability.value_kind == "bool" and type(observed_value) is str:
+                # Register-schema diagnostics intentionally show On/Off, while
+                # capability writes use native bools.
+                if observed_value in {"On", "Off"}:
+                    observed_value = observed_value == "On"
+            matched = tuple(encode_capability_words(capability, observed_value)) == trace.requested_words
         except (TypeError, ValueError):
             matched = False
     store_write_confirmation(
